@@ -83,6 +83,27 @@ pub fn classify_ifaces(ifaces: &[(String, IpAddr)]) -> IfaceChoice {
     choice
 }
 
+/// The IPs the mDNS daemon uses: the adapters `classify_ifaces` kept, each
+/// once, in order. When it kept none, `fallback` (the IP identity resolved,
+/// maybe the routing-table one) so an adapter with an odd name — e.g. the
+/// real NIC behind a Hyper-V external switch, "vEthernet (External)" — does
+/// not leave the daemon deaf. Empty only if `fallback` is not an IP either.
+pub fn mdns_ip_list(used: &[(String, Ipv4Addr)], fallback: &str) -> Vec<IpAddr> {
+    let mut ips: Vec<IpAddr> = Vec::new();
+    for (_, ip) in used {
+        let ip = IpAddr::V4(*ip);
+        if !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+    if ips.is_empty() {
+        if let Ok(ip) = fallback.parse::<IpAddr>() {
+            ips.push(ip);
+        }
+    }
+    ips
+}
+
 /// What moved between two adapter sets: IPs to drop and IPs to add. Order
 /// does not matter (the same adapters listed in another order is no change).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

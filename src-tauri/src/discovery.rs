@@ -685,8 +685,9 @@ pub fn start(
                 // roam instead of the boot-time IP frozen in AppState.identity.
                 *current_ip.lock().unwrap() = fresh;
                 // Goodbye on the old adapters while they are still enabled.
-                // The daemon repeats it 120 ms later, so wait that out before
-                // the new announcement or peers would drop it as a goodbye.
+                // mdns-sd 0.13.11 repeats it 120 ms later (service_daemon.rs
+                // :2708), so wait that out before the new announcement or
+                // peers would take the repeat as a goodbye for it.
                 if let Err(e) = daemon.unregister(&fullname) {
                     crate::runtime_log::warn(format!("[net] mDNS unregister failed: {}", e));
                 }
@@ -719,9 +720,10 @@ pub fn start(
 }
 
 /// REFRESH button. Deliberately does not touch the mDNS daemon: in mdns-sd
-/// 0.13 a second `browse` either dies at once (its receiver dropped, so
+/// 0.13.11 a second `browse` either dies at once (its receiver dropped, so
 /// nothing is sent) or, if the receiver were kept, REPLACES the listener of
-/// the browse started in `start` and that loop stops getting events. The
+/// the browse started in `start` (service_daemon.rs:2607-2608) and that
+/// loop stops getting events. The
 /// live browse keeps querying on its own; the button's real work is the
 /// `wake_probes` that `rescan_peers` (lib.rs) calls right after this.
 pub fn rebrowse(_state: &DiscoveryState) -> Result<(), mdns_sd::Error> {
@@ -792,26 +794,13 @@ fn sanitize_hostname(s: &str) -> String {
     }
 }
 
-/// The IPs the mDNS daemon listens and answers on: every real LAN adapter
-/// (`net_ifaces` rule), in the system's order. When the rule keeps none,
-/// `fallback` (the IP identity resolved, maybe the routing-table one), so an
-/// odd adapter name does not leave the daemon deaf while identity has an IP.
-/// Blocking (NIC enumeration).
+/// The IPs the mDNS daemon listens and answers on (`net_ifaces::mdns_ip_list`
+/// over the OS adapter list). Blocking (NIC enumeration).
 fn mdns_ips(fallback: &str) -> Vec<IpAddr> {
-    let mut ips: Vec<IpAddr> = local_ip_address::list_afinet_netifas()
+    let used = local_ip_address::list_afinet_netifas()
         .map(|ifaces| crate::net_ifaces::classify_ifaces(&ifaces).used)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(_, ip)| IpAddr::V4(ip))
-        .collect();
-    let mut seen = std::collections::HashSet::new();
-    ips.retain(|ip| seen.insert(*ip));
-    if ips.is_empty() {
-        if let Ok(ip) = fallback.parse::<IpAddr>() {
-            ips.push(ip);
-        }
-    }
-    ips
+        .unwrap_or_default();
+    crate::net_ifaces::mdns_ip_list(&used, fallback)
 }
 
 /// Enable (`on`) or disable each of `ips` on the daemon, logging each one.

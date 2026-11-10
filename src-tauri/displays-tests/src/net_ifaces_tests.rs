@@ -168,3 +168,51 @@ fn desenchufar_ethernet_solo_saca() {
     assert_eq!(d.gone, vec![v4(192, 168, 0, 10)]);
     assert!(d.added.is_empty());
 }
+
+#[test]
+fn arrancar_sin_red_y_que_vuelva_suma_la_placa() {
+    let d = diff_ips(&[], &[v4(192, 168, 1, 42)]);
+    assert!(d.gone.is_empty());
+    assert_eq!(d.added, vec![v4(192, 168, 1, 42)]);
+    // Y al revés: se fueron todas.
+    let d = diff_ips(&[v4(192, 168, 1, 42)], &[]);
+    assert_eq!(d.gone, vec![v4(192, 168, 1, 42)]);
+    assert!(d.added.is_empty());
+    assert!(diff_ips(&[], &[]).is_empty());
+}
+
+// --- mdns_ip_list: placas del daemon, con respaldo ---
+
+use crate::net_ifaces::mdns_ip_list;
+
+fn used(pairs: &[(&str, [u8; 4])]) -> Vec<(String, Ipv4Addr)> {
+    pairs.iter().map(|(n, o)| (n.to_string(), Ipv4Addr::from(*o))).collect()
+}
+
+#[test]
+fn con_placas_reales_no_usa_el_respaldo() {
+    let u = used(&[("Wi-Fi", [192, 168, 1, 42]), ("Ethernet", [192, 168, 0, 10])]);
+    assert_eq!(
+        mdns_ip_list(&u, "172.20.0.1"),
+        vec![v4(192, 168, 1, 42), v4(192, 168, 0, 10)]
+    );
+}
+
+#[test]
+fn sin_placas_reales_usa_el_respaldo() {
+    // Hyper-V con switch externo: la placa buena se llama "vEthernet (External)"
+    // y la regla la descarta; el daemon no puede quedar sordo.
+    assert_eq!(mdns_ip_list(&[], "192.168.1.42"), vec![v4(192, 168, 1, 42)]);
+}
+
+#[test]
+fn sin_placas_y_sin_respaldo_queda_vacia() {
+    assert!(mdns_ip_list(&[], "").is_empty());
+    assert!(mdns_ip_list(&[], "no-es-una-ip").is_empty());
+}
+
+#[test]
+fn la_misma_ip_dos_veces_cuenta_una() {
+    let u = used(&[("Wi-Fi", [192, 168, 1, 42]), ("Wi-Fi", [192, 168, 1, 42])]);
+    assert_eq!(mdns_ip_list(&u, ""), vec![v4(192, 168, 1, 42)]);
+}
