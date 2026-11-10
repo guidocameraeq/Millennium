@@ -8,3 +8,4 @@ pub(crate) mod displays_cmds;
 pub(crate) mod tray;
 pub(crate) mod crash_log;
 pub(crate) mod peers_cmds;
+pub(crate) mod clipboard_cmds;
