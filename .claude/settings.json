@@ -1,11 +1,19 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
       "Bash(cargo check:*)",
       "Bash(cargo clippy:*)",
       "Bash(cargo test:*)",
       "Bash(npm run tauri:*)",
       "Bash(node --check:*)",
+      "Bash(bash -n:*)",
       "Bash(node .claude/scripts/cambios.cjs:*)"
     ],
     "ask": [
