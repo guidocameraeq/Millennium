@@ -981,11 +981,23 @@ fn spawn_clipboard_poller(
                 if enabled.is_empty() {
                     Vec::new()
                 } else {
+                    // A favorite kept past the TTL (offline) stays in the map
+                    // but is not a sync target.
+                    let ttl = udp_discovery::BROADCAST_INTERVAL_SECS.saturating_mul(3);
                     let p = peers.lock().unwrap();
                     enabled
                         .into_iter()
                         .filter(|fp| fp != &my_fingerprint)
-                        .filter_map(|fp| p.get(&fp).map(|r| (fp.clone(), r.ip.clone(), r.port)))
+                        .filter_map(|fp| {
+                            p.get(&fp)
+                                .filter(|r| {
+                                    net_ifaces::receives_clipboard_sync(
+                                        r.last_seen.elapsed().as_secs(),
+                                        ttl,
+                                    )
+                                })
+                                .map(|r| (fp.clone(), r.ip.clone(), r.port))
+                        })
                         .collect()
                 }
             };
