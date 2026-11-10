@@ -125,6 +125,19 @@ pub fn redact_query(s: &str) -> String {
     out
 }
 
+/// Longest message the screen may write to the log, in characters.
+pub const MAX_UI_CHARS: usize = 300;
+
+/// What the frontend sent, cut to `MAX_UI_CHARS` characters (with `…` when it
+/// was longer). An error from the screen that quotes user text enters cut.
+pub fn limit_ui_msg(msg: &str) -> String {
+    if msg.chars().count() <= MAX_UI_CHARS {
+        return msg.to_string();
+    }
+    let cut: String = msg.chars().take(MAX_UI_CHARS).collect();
+    format!("{}…", cut)
+}
+
 /// `alias (ip:port)`
 pub fn peer_label(alias: &str, ip: &str, port: u16) -> String {
     format!("{} ({}:{})", one_line(alias), one_line(ip), port)
