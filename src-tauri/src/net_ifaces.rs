@@ -253,6 +253,13 @@ pub fn fate_status(fate: PeerFate) -> &'static str {
     }
 }
 
+/// Whether the clipboard sync fans out to a peer: only if heard from within
+/// the TTL. A favorite kept past it (offline) is not a sync target, so each
+/// clipboard change doesn't pile up failed sends and timeouts.
+pub fn receives_clipboard_sync(elapsed_secs: u64, ttl_secs: u64) -> bool {
+    elapsed_secs < ttl_secs
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

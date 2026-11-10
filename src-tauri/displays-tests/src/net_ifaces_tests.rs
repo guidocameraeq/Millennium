@@ -358,3 +358,31 @@ fn solo_online_se_muestra_online() {
     // Favorito recién sacado de favoritos mientras estaba callado: Gone, no "online".
     assert_eq!(fate_status(peer_fate(60, 15, false)), "offline");
 }
+
+// --- sync del portapapeles: solo a peers vistos dentro del TTL (encargo 94) ---
+
+use crate::net_ifaces::receives_clipboard_sync;
+
+#[test]
+fn peer_online_recibe_el_sync_del_portapapeles() {
+    // Favorito o no, visto hace poco: recibe (el mapa no distingue acá).
+    assert!(receives_clipboard_sync(3, 15));
+    assert!(receives_clipboard_sync(14, 15));
+    assert_eq!(fate_status(peer_fate(14, 15, true)), "online");
+    assert_eq!(fate_status(peer_fate(14, 15, false)), "online");
+}
+
+#[test]
+fn favorito_offline_no_recibe_el_sync_del_portapapeles() {
+    // Pasado el TTL el favorito sigue en el mapa (offline) pero no recibe.
+    assert!(!receives_clipboard_sync(15, 15));
+    assert!(!receives_clipboard_sync(3600, 15));
+    assert_eq!(fate_status(peer_fate(15, 15, true)), "offline");
+}
+
+#[test]
+fn no_favorito_vencido_tampoco_recibe_el_sync_del_portapapeles() {
+    // Gone todavía no limpiado por el reaper: tampoco.
+    assert!(!receives_clipboard_sync(16, 15));
+    assert_eq!(fate_status(peer_fate(16, 15, false)), "offline");
+}
