@@ -219,6 +219,29 @@ pub fn pick_peer_addr(candidates: &[IpAddr], local: &[Ipv4Addr], prefix: u8) -> 
         .copied()
 }
 
+/// What the presence reaper does with a peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerFate {
+    /// Heard from within the TTL.
+    Online,
+    /// Silent past the TTL but a favorite: stays in the map (and as a send
+    /// target on its last IP:port), shown as offline.
+    Offline,
+    /// Silent past the TTL and not a favorite: removed from the map.
+    Gone,
+}
+
+/// Decide a peer's fate from the seconds since we last heard from it.
+pub fn peer_fate(elapsed_secs: u64, ttl_secs: u64, is_favorite: bool) -> PeerFate {
+    if elapsed_secs < ttl_secs {
+        PeerFate::Online
+    } else if is_favorite {
+        PeerFate::Offline
+    } else {
+        PeerFate::Gone
+    }
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

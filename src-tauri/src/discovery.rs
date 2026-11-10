@@ -138,6 +138,14 @@ pub(crate) fn build_wire_list(
         let is_manual = manual.contains(&record.id);
         let clip_sync = clipboard.is_enabled(&record.id);
         let mut wire = record.to_wire(is_fav, is_manual, clip_sync);
+        // A favorite the reaper keeps past the TTL: same `status` field the
+        // frontend already reads ("offline"), no new JSON field.
+        let ttl = crate::udp_discovery::BROADCAST_INTERVAL_SECS.saturating_mul(3);
+        if crate::net_ifaces::peer_fate(record.last_seen.elapsed().as_secs(), ttl, is_fav)
+            == crate::net_ifaces::PeerFate::Offline
+        {
+            wire.status = "offline";
+        }
         wire.name = apply_alias(&record.id, wire.name);
         wire.icon_type = apply_icon(&record.id, wire.icon_type);
         result.push(wire);
@@ -377,20 +385,46 @@ pub fn start(
             let mut reap = tokio::time::interval(Duration::from_secs(2));
             reap.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             reap.tick().await; // skip the immediate first tick
+            // Favorites that are past the TTL right now (kept in the map,
+            // shown offline). Lets the reaper tell a NEW offline / a return
+            // to online apart from "still offline" without a flag on the record.
+            let mut offline: std::collections::HashSet<String> = std::collections::HashSet::new();
             loop {
                 reap.tick().await;
                 let mut removed: Vec<String> = Vec::new();
+                let mut went_offline: Vec<String> = Vec::new();
+                let mut came_back: Vec<String> = Vec::new();
                 {
+                    use crate::net_ifaces::{peer_fate, PeerFate};
                     let mut p = peers.lock().unwrap();
-                    p.retain(|_fp, rec| {
-                        let alive = rec.last_seen.elapsed() < peer_ttl;
-                        if !alive {
-                            removed.push(rec.id.clone());
+                    p.retain(|fp, rec| {
+                        let fate = peer_fate(
+                            rec.last_seen.elapsed().as_secs(),
+                            peer_ttl.as_secs(),
+                            prefs.is_favorite(&rec.id),
+                        );
+                        match fate {
+                            PeerFate::Online => {
+                                if offline.remove(fp) {
+                                    came_back.push(rec.id.clone());
+                                }
+                                true
+                            }
+                            PeerFate::Offline => {
+                                if offline.insert(fp.clone()) {
+                                    went_offline.push(rec.id.clone());
+                                }
+                                true
+                            }
+                            PeerFate::Gone => {
+                                offline.remove(fp);
+                                removed.push(rec.id.clone());
+                                false
+                            }
                         }
-                        alive
                     });
                 }
-                if removed.is_empty() {
+                if removed.is_empty() && went_offline.is_empty() && came_back.is_empty() {
                     continue;
                 }
                 for fp in &removed {
@@ -398,6 +432,18 @@ pub fn start(
                         "[reaper] {} offline — no hello/probe for >{}s",
                         &fp[..16.min(fp.len())],
                         peer_ttl.as_secs()
+                    ));
+                }
+                for fp in &went_offline {
+                    crate::runtime_log::info(format!(
+                        "[reaper] favorite {} offline — kept as send target on its last route",
+                        &fp[..16.min(fp.len())]
+                    ));
+                }
+                for fp in &came_back {
+                    crate::runtime_log::info(format!(
+                        "[reaper] favorite {} back online",
+                        &fp[..16.min(fp.len())]
                     ));
                 }
                 // Forget fullname → id mappings for the reaped peers so a
