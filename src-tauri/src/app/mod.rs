@@ -3,3 +3,4 @@
 pub(crate) mod updater_cmds;
 pub(crate) mod runtime_log_cmds;
 pub(crate) mod clipboard_poller;
+pub(crate) mod displays_cmds;
