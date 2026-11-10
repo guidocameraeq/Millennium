@@ -105,3 +105,26 @@ test('textoHttp: explica 401/403/404/422 y no se rompe con otros', () => {
 test('resumen: error sin verificar', () => {
   assert.strictEqual(resumen('a8a575a3929f', 0, null), 'ci-verde @a8a575a: 0 checks · sin verificar');
 });
+
+const { objetivoMerge } = require('./ci-verde.cjs');
+const M = 'aaaaaaa1111111', P1 = 'bbbbbbb2222222', P2 = 'ccccccc3333333';
+
+test('objetivoMerge: merge, GitHub dice 422 y hay --merge → mira el último padre con aviso', () => {
+  const o = objetivoMerge({ sha: M, padres: [P1, P2], status: 422, merge: true });
+  assert.strictEqual(o.sha, P2);
+  assert.strictEqual(o.aviso, 'ci-verde: aaaaaaa es un merge sin pushear; miro su punta ccccccc');
+});
+
+test('objetivoMerge: no es merge (un solo padre) → sigue igual', () => {
+  assert.strictEqual(objetivoMerge({ sha: M, padres: [P1], status: 422, merge: true }), null);
+  assert.strictEqual(objetivoMerge({ sha: M, padres: [], status: 422, merge: true }), null);
+});
+
+test('objetivoMerge: GitHub sí lo conoce (no es 422) → sigue igual', () => {
+  assert.strictEqual(objetivoMerge({ sha: M, padres: [P1, P2], status: 404, merge: true }), null);
+  assert.strictEqual(objetivoMerge({ sha: M, padres: [P1, P2], status: undefined, merge: true }), null);
+});
+
+test('objetivoMerge: 422 sin --merge → sigue igual', () => {
+  assert.strictEqual(objetivoMerge({ sha: M, padres: [P1, P2], status: 422, merge: false }), null);
+});

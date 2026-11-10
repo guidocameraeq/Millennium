@@ -1,12 +1,13 @@
 'use strict';
 // ci-verde.cjs — ¿el CI de GitHub está verde para este commit? (puesta-a-punto, SPEC.md:48). Uso, desde el repo:
-//   node .claude/scripts/ci-verde.cjs <sha|HEAD> [--esperar]
+//   node .claude/scripts/ci-verde.cjs <sha|HEAD> [--esperar] [--merge]
 // Consulta los check-runs del commit en api.github.com (solo LEE). Dueño/repo salen del remote `origin`.
 // Salidas: 0 todos los checks terminaron en success/skipped/neutral y hay al menos uno · 1 alguno falló (una línea por check
 // fallado) o, con --esperar, no apareció ningún check en 3 min · 2 siguen corriendo (o aún no hay checks, sin --esperar).
 // Error de red/API: 1 con `NO VERIFICADO: <por qué>` (regla 5 del gate). --esperar reconsulta cada 30 s hasta 25 min; pasado el
 // tope, 2. La última línea es siempre el resumen. Credencial: `git credential fill`; el token va SOLO en el header Authorization
 // hacia api.github.com y nunca se imprime. Sin credencial, intenta sin ella (repo público).
+// --merge: si el commit es un merge que GitHub no conoce (422, aún sin pushear), mira el CI de su último padre (la punta mergeada).
 // Node estándar, cero dependencias. Es .cjs a propósito: corre igual en proyectos con "type": "module".
 
 const { execFileSync } = require('child_process');
@@ -60,6 +61,13 @@ function textoHttp(status) {
   return `la API contestó ${status}${t[status] ? ': ' + t[status] : ''}`;
 }
 
+// Si el commit es un merge local sin pushear (--merge, 2+ padres, GitHub contestó 422) → { sha: último padre, aviso }; si no, null.
+function objetivoMerge({ sha, padres, status, merge }) {
+  if (!merge || status !== 422 || !Array.isArray(padres) || padres.length < 2) return null;
+  const punta = padres[padres.length - 1];
+  return { sha: punta, aviso: `ci-verde: ${String(sha).slice(0, 7)} es un merge sin pushear; miro su punta ${String(punta).slice(0, 7)}` };
+}
+
 function resumen(sha, total, codigo) {
   const estado = codigo === null ? 'sin verificar' : codigo === 0 ? 'verde' : codigo === 1 ? 'rojo' : 'corriendo';
   return `ci-verde @${String(sha).slice(0, 7)}: ${total} checks · ${estado}`;
@@ -95,7 +103,7 @@ function pedir(ruta, tk) {
       let cuerpo = '';
       res.on('data', (d) => (cuerpo += d));
       res.on('end', () => {
-        if (res.statusCode !== 200) return reject(new Error(textoHttp(res.statusCode)));
+        if (res.statusCode !== 200) return reject(Object.assign(new Error(textoHttp(res.statusCode)), { status: res.statusCode }));
         try { resolve(JSON.parse(cuerpo)); } catch { reject(new Error('respuesta que no es JSON')); }
       });
       res.on('error', reject);
@@ -126,11 +134,14 @@ function noVerificado(sha, porque) {
 
 async function main(argv) {
   const esperar = argv.includes('--esperar');
+  const merge = argv.includes('--merge');
   const ref = argv.find((a) => !a.startsWith('--')) || 'HEAD';
   let sha;
   let dr;
+  let padres = [];
   try {
     sha = git(['rev-parse', '--verify', `${ref}^{commit}`]);
+    if (merge) padres = git(['rev-list', '--parents', '-n', '1', sha]).split(/s+/).slice(1);
     dr = dueñoRepo(git(['remote', 'get-url', 'origin']));
   } catch (e) {
     return noVerificado(sha, `no pude resolver ${ref} o el remote origin`);
@@ -143,6 +154,13 @@ async function main(argv) {
     try {
       v = veredicto(await checkRuns(dr.dueño, dr.repo, sha, tk));
     } catch (e) {
+      const o = objetivoMerge({ sha, padres, status: e.status, merge });
+      if (o) {
+        console.log(o.aviso);
+        sha = o.sha;
+        padres = [];
+        continue;
+      }
       return noVerificado(sha, e.message);
     }
     const d = decidir(v, esperar, Date.now() - inicio);
@@ -163,4 +181,4 @@ if (require.main === module) {
     .then((c) => process.exit(c));
 }
 
-module.exports = { veredicto, dueñoRepo, sinChecksVencido, resumen, decidir, textoHttp };
+module.exports = { veredicto, dueñoRepo, sinChecksVencido, resumen, decidir, textoHttp, objetivoMerge };
