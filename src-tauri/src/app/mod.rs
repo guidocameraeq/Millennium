@@ -7,3 +7,4 @@ pub(crate) mod displays_cmds;
 #[cfg(desktop)]
 pub(crate) mod tray;
 pub(crate) mod crash_log;
+pub(crate) mod peers_cmds;
