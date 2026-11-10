@@ -1,0 +1,798 @@
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- is-mobile / fx-off detector. Was an inline <script>; moved to pre.js
+       (Fase 3, Tarea 3.2) so a strict CSP with script-src 'self' works.
+       Parser-blocking + placed before styles.css so it still runs first. -->
+  <script src="pre.js"></script>
+  <title>Millennium // GRID</title>
+
+  <!-- Fonts are self-hosted in styles.css (@font-face → src/fonts/*.woff2).
+       The Google Fonts <link>s were removed for the strict CSP + offline use. -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-app="displays">
+  <!-- Background layers (fixed, behind everything) -->
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-horizon" aria-hidden="true">
+    <div class="horizon-floor"></div>
+  </div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+  <div class="scanline" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
+
+  <div class="app">
+    <!-- TOP HUD ============================================================ -->
+    <div class="topbar">
+      <header class="hud">
+        <div class="hud-left">
+          <div class="logo">
+            <span class="logo-mark">◣◢</span>
+            <span class="logo-text">MILLENNIUM</span>
+            <span class="logo-sub">GRID // <span id="hud-version">v0.0.0-mock</span></span>
+          </div>
+        </div>
+
+        <!-- Switch héroe "dos apps en una" (SPEC-shell). Reemplaza los botoncitos
+             CLIP|DISP y el viejo "← CLIPBOARD". Conserva id="hud-sections" y, por
+             segmento, las TRES cosas que lo hacen andar: .hud-btn (el click es
+             por-elemento, main.js ~1079), data-action (el dispatch) y data-section
+             (el resaltado del activo). main.js lo revela solo fuera de Android
+             (displaysEnabled, userAgent — NO .desktop-only, que se activa también
+             por ventana angosta); en Android queda oculto → app solo-Clipboard. -->
+        <div class="hud-sections app-switch" id="hud-sections" role="tablist" aria-label="Cambiar de app">
+          <button class="hud-btn hud-section-btn" type="button" role="tab" aria-selected="false" data-action="section-clipboard" data-section="clipboard" title="Portapapeles">
+            <span class="hud-btn-glyph">▦</span>CLIPBOARD
+          </button>
+          <button class="hud-btn hud-section-btn is-active" type="button" role="tab" aria-selected="true" id="hud-displays-btn" data-action="section-displays" data-section="displays" title="Monitores conectados">
+            <span class="hud-btn-glyph">▤</span>DISPLAYS
+          </button>
+        </div>
+
+        <div class="hud-right">
+          <!-- ⚙ APP: ajustes de la app (neutro, ni cyan ni violeta). -->
+          <button class="hud-btn app-settings-btn" data-action="app-settings" title="Ajustes de la app — actualizador, arranque, apariencia">
+            <span class="hud-btn-glyph">⚙</span>APP
+          </button>
+        </div>
+      </header>
+
+      <!-- Barra de herramientas POR APP (SPEC-shell). Solo una se ve a la vez; el
+           swap es puro CSS por body[data-app] (mismo dato que tiñe el marco), así
+           no puede desincronizarse del color ni necesita JS extra. En el boot (sin
+           data-app) se ve la de Clipboard. -->
+      <div class="app-toolbars">
+        <!-- CLIPBOARD: identidad de red (HOST/NODE) + acciones del portapapeles. -->
+        <div class="app-toolbar" data-bar="clipboard">
+          <div class="hud-center">
+            <div class="hud-stat">
+              <span class="hud-label">HOST</span>
+              <span class="hud-value" id="hud-host">MILLENNIUM-PC</span>
+            </div>
+            <div class="hud-stat">
+              <span class="hud-label">NODE</span>
+              <span class="hud-value mono" id="hud-ip">192.168.1.10:53317</span>
+            </div>
+          </div>
+          <div class="toolbar-actions">
+            <button class="hud-btn" data-action="refresh" title="Rescan network">
+              <span class="hud-btn-glyph">↻</span>SCAN
+            </button>
+            <button class="hud-btn" data-action="history" title="Past transfers">
+              <span class="hud-btn-glyph">≡</span>LOG
+            </button>
+            <button class="hud-btn" data-action="qr" title="QR pairing">
+              <span class="hud-btn-glyph">▣</span>QR
+            </button>
+            <button class="hud-btn" data-action="settings" title="Ajustes de Clipboard">
+              <span class="hud-btn-glyph">⚙</span>CONF
+            </button>
+          </div>
+        </div>
+
+        <!-- DISPLAYS: contador de monitores + REFRESH (movidos desde adentro de la
+             sección; conservan su id, el JS los referencia por id). -->
+        <div class="app-toolbar" data-bar="displays">
+          <div class="toolbar-status mono">
+            <span class="hud-btn-glyph">▤</span>
+            <span id="displays-count">2 monitor(es) · 2 activo(s)</span>
+          </div>
+          <div class="toolbar-actions">
+            <button class="hud-btn" id="displays-refresh" data-action="displays-refresh" title="Releer monitores">
+              <span class="hud-btn-glyph">↻</span>REFRESH
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN GRID (sección CLIPBOARD) ====================================== -->
+    <main class="grid" id="clipboard-section" hidden="">
+      <!-- LEFT: PEERS PANEL -->
+      <section class="card peers">
+        <div class="card-corners">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <header class="card-head">
+          <h2 class="card-title">
+            <span class="card-pulse"></span>PEERS DETECTED
+          </h2>
+          <div class="card-meta">
+            <span class="badge" id="peer-count">01</span>
+          </div>
+        </header>
+
+        <div class="filter-bar">
+          <button class="filter-btn active" data-filter="favorites">★ FAVORITES</button>
+          <button class="filter-btn" data-filter="all">ALL</button>
+          <div class="filter-spacer"></div>
+          <button class="filter-btn add-peer-btn" id="add-peer-btn" title="Agregar un equipo por su IP, si no aparece solo en la lista.">+ ADD</button>
+        </div>
+        <span class="filter-hint mono" id="filter-hint">01 visible</span>
+
+        <ul class="peer-list" id="peer-list">
+          <li class="peer-item selected" data-id="aa11bb22cc33dd44" data-status="online" data-manual="false">
+      <div class="peer-icon" data-icon="laptop"><img src="assets/peer-icons/ring.png" alt="Millennium Ring" class="peer-item-img" data-icon-key="laptop"></div>
+      <div class="peer-info">
+        <div class="peer-name-row">
+          <span class="peer-name" title="Double-click to rename">DRACOSSSLAPTOP</span>
+          <button class="peer-action-btn details-btn" title="Peer details">⋯</button>
+        </div>
+        <div class="peer-meta">
+          <span class="peer-hex mono">0xA1B2</span>
+          <span class="peer-ip mono">192.168.1.20</span>
+        </div>
+        <div class="peer-status-row">
+          <div class="peer-status online">
+            <span class="status-dot"></span><span class="status-label">ONLINE</span>
+          </div>
+          <div class="peer-toggles">
+            <button class="peer-toggle fav-toggle active" title="Toggle favorite" aria-pressed="true">★</button>
+            <button class="peer-toggle clip-toggle active" title="Toggle clipboard sync" aria-pressed="true">📋</button>
+          </div>
+        </div>
+      </div>
+    </li><li class="peer-loading">⌛ SCANNING NETWORK...</li>
+        </ul>
+      </section>
+
+      <!-- RIGHT: COMPOSER -->
+      <section class="card composer">
+        <div class="card-corners">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <header class="card-head">
+          <h2 class="card-title">
+            <span class="card-arrow">▸</span>TRANSMIT TO
+            <span class="target" id="target-name">DRACOSSSLAPTOP</span>
+          </h2>
+          <div class="target-hex mono" id="target-hex">0xA1B2</div>
+        </header>
+
+        <div class="mode-switch">
+          <button class="mode-btn active" data-mode="text">
+            <span class="mode-glyph">A</span>TEXT
+          </button>
+          <button class="mode-btn" data-mode="file">
+            <span class="mode-glyph">⬢</span>FILE
+          </button>
+        </div>
+
+        <div class="mode-panel active" id="mode-text">
+          <div class="textarea-wrap">
+            <textarea id="text-composer" spellcheck="false" placeholder="TYPE OR PASTE &gt; TRANSMIT TO PEER..."></textarea>
+            <div class="textarea-grid"></div>
+          </div>
+          <div class="composer-meta">
+            <span class="mono">CTRL+ENTER → TRANSMIT</span>
+          </div>
+        </div>
+
+        <div class="mode-panel" id="mode-file" hidden="">
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-icon">⬢</div>
+            <div class="dropzone-text">
+              DROP FILES TO QUEUE
+              <small>or click to browse</small>
+            </div>
+            <div class="dropzone-count mono" id="dropzone-count" hidden=""></div>
+            <div class="dropzone-corners">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <ul class="file-queue" id="file-queue" hidden=""></ul>
+        </div>
+
+        <div class="send-section">
+          <!-- Sender (TX) progress. Driven by transmit* + transfer-progress-sender. -->
+          <div class="progress-block" id="progress-block" hidden="">
+            <div class="progress-label mono">
+              <span id="progress-text">TRANSMITTING //</span>
+              <span class="progress-pct mono" id="progress-pct">0%</span>
+            </div>
+            <div class="progress-segments" id="progress-segments"><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+          </div>
+
+          <!-- Receiver (RX) progress. Separate surface so a concurrent
+               incoming transfer never corrupts the TX bar (LAN is full-duplex). -->
+          <div class="progress-block rx-progress-block" id="rx-progress-block" hidden="">
+            <div class="progress-label mono">
+              <span id="rx-progress-text">RECEIVING //</span>
+              <span class="progress-pct mono" id="rx-progress-pct">0%</span>
+            </div>
+            <div class="progress-segments" id="rx-progress-segments"><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+          </div>
+
+          <button class="transmit-btn" id="send-btn">
+            <span class="transmit-arrow">▸</span>
+            <span class="transmit-text">TRANSMIT</span>
+            <span class="transmit-arrow">◂</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- DISPLAYS (sección) — Displays v2 Fase 2: los monitores dejaron de ser un
+         pop-up y viven en su propia sección a pantalla completa. La lógica de
+         adentro (4 sub-pestañas, red de auto-rollback, todo lo de la Fase 1) NO
+         cambió; cambió el marco: de .modal-backdrop/.modal a
+         .displays-section/.displays-shell. Se oculta con [hidden] (no se
+         desmonta) al saltar a CLIPBOARD, así un transfer en curso sobrevive. El
+         reloj del auto-revert ya NO vive acá: se fue al banner global (abajo). -->
+    <section class="displays-section" id="displays-section" aria-label="Displays">
+      <div class="displays-shell">
+        <div class="card-corners">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <header class="modal-head">
+          <span class="modal-glyph">▤</span>
+          <span class="modal-title">DISPLAYS</span>
+          <!-- El contador (#displays-count) se movió a la barra de Displays del
+               top bar (SPEC-shell). Su id no cambió; el JS lo sigue tomando por id. -->
+        </header>
+        <!-- Pestañas. Las acciones viven abajo, FUERA de los panes. -->
+        <nav class="displays-tabs" id="displays-tabs" role="tablist">
+          <button class="displays-tab is-active" type="button" data-tab="list" role="tab">LISTA</button>
+          <button class="displays-tab" type="button" data-tab="profiles" role="tab">PERFILES</button>
+          <button class="displays-tab" type="button" data-tab="settings" role="tab">AJUSTES</button>
+          <button class="displays-tab" type="button" data-tab="canvas" role="tab">LIENZO</button>
+        </nav>
+        <div class="modal-body">
+          <p class="modal-error" id="displays-error" hidden=""></p>
+
+          <!-- Pane: LISTA (Fase 1/2 — sin cambios de comportamiento) -->
+          <div class="displays-pane" data-pane="list">
+            <p class="mono displays-mock-warning" id="displays-mock-warning" hidden="">
+              ⚠ DATOS DE PRUEBA — estos monitores son falsos (MONARCH_FORCE_MOCK_BACKEND)
+            </p>
+            <ul class="displays-list" id="displays-list"><li class="display-item" data-id="mon-1" data-active="true">
+      <div class="display-glyph">▤</div>
+      <div class="display-info">
+        <div class="display-name">DELL U2723QE</div>
+        <div class="display-meta mono">
+          <span class="display-res">2560 × 1440</span>
+          <span class="display-sep">·</span>
+          <span class="display-hz">59.95 Hz</span>
+        </div>
+      </div>
+      <div class="display-badges"><span class="badge display-badge primary">PRIMARY</span><span class="badge display-badge active">ACTIVE</span></div>
+      <div class="display-actions">
+        <button class="modal-btn small display-primary-btn" type="button" hidden="">★ primario</button>
+        <button class="modal-btn small display-toggle-btn reject" type="button" title="Apagar este monitor">DETACH</button>
+      </div></li><li class="display-item" data-id="mon-2" data-active="true">
+      <div class="display-glyph">▤</div>
+      <div class="display-info">
+        <div class="display-name">LG TV OLED</div>
+        <div class="display-meta mono">
+          <span class="display-res">1920 × 1080</span>
+          <span class="display-sep">·</span>
+          <span class="display-hz">60 Hz</span>
+        </div>
+      </div>
+      <div class="display-badges"><span class="badge display-badge active">ACTIVE</span></div>
+      <div class="display-actions">
+        <button class="modal-btn small display-primary-btn" type="button" title="Hacer este monitor el primario (pasa por la cuenta regresiva).">★ primario</button>
+        <button class="modal-btn small display-toggle-btn reject" type="button" title="Apagar este monitor">DETACH</button>
+      </div></li></ul>
+            <p class="mono displays-empty" id="displays-empty" hidden="">Sin monitores para mostrar.</p>
+          </div>
+
+          <!-- Pane: PERFILES (Fase 3) -->
+          <div class="displays-pane" data-pane="profiles" hidden="">
+            <div class="displays-profile-save">
+              <input class="displays-profile-name" id="displays-profile-name" type="text" maxlength="60" placeholder="Nombre del perfil…" autocomplete="off" spellcheck="false">
+              <button class="modal-btn small accept" type="button" id="displays-save-profile">＋ GUARDAR EL ACTUAL</button>
+            </div>
+            <!-- Banner de confirmación (pisar / borrar). Tus perfiles son tus datos:
+                 nada se pisa ni se borra sin este OK explícito. -->
+            <div class="displays-confirm-banner" id="displays-profile-confirm" hidden="">
+              <span class="mono displays-confirm-text" id="displays-profile-confirm-text">—</span>
+              <span class="displays-confirm-actions">
+                <button class="modal-btn small reject" type="button" id="displays-profile-confirm-yes">SÍ</button>
+                <button class="modal-btn small" type="button" id="displays-profile-confirm-no">NO</button>
+              </span>
+            </div>
+            <ul class="displays-profiles-list" id="displays-profiles-list"></ul>
+            <p class="mono displays-empty" id="displays-profiles-empty" hidden="">Todavía no guardaste ningún perfil.</p>
+          </div>
+
+          <!-- Pane: AJUSTES (Fase 3) -->
+          <div class="displays-pane" data-pane="settings" hidden="">
+            <div class="displays-setting">
+              <label class="displays-setting-label" for="displays-revert-secs">Plazo del auto-revert</label>
+              <p class="displays-setting-hint">Cuántos segundos espera un cambio antes de volver solo si no lo confirmás.</p>
+              <div class="displays-setting-row">
+                <input class="displays-setting-input" id="displays-revert-secs" type="number" min="3" max="120" step="1" inputmode="numeric">
+                <span class="displays-setting-unit">segundos</span>
+                <button class="modal-btn small accept" type="button" id="displays-settings-save">GUARDAR</button>
+              </div>
+            </div>
+            <!-- Displays v2, Fase 1: aplicar un perfil al encender -->
+            <div class="displays-setting">
+              <label class="displays-setting-label" for="displays-startup-profile">Aplicar un perfil al encender</label>
+              <p class="displays-setting-hint">Al arrancar Windows con Millennium en la bandeja (autostart), aplica este perfil solo. Si el layout ya coincide, no hace nada.</p>
+              <div class="displays-setting-row">
+                <select class="displays-setting-select" id="displays-startup-profile">
+                  <option value="">— ninguno —</option>
+                </select>
+              </div>
+            </div>
+            <!-- Displays v2, Fase 1: interruptor general de los atajos de perfil -->
+            <div class="displays-setting">
+              <label class="displays-setting-label">Atajos de teclado por perfil</label>
+              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por perfil en la pestaña PERFILES. Apagado, ninguno funciona.</p>
+              <div class="displays-setting-row">
+                <label class="sound-toggle">
+                  <input type="checkbox" id="displays-shortcuts-enabled">
+                  <span class="sound-track"><span class="sound-thumb"></span></span>
+                  <span class="settings-value mono" id="displays-shortcuts-enabled-label">ON</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pane: LIENZO (Fase 3) -->
+          <div class="displays-pane" data-pane="canvas" hidden="">
+            <p class="displays-canvas-hint mono">Arrastrá los monitores — se pegan al borde. APLICAR lo manda a Windows (vuelve solo si no confirmás).</p>
+            <div class="displays-canvas" id="displays-canvas"></div>
+            <p class="mono displays-empty" id="displays-canvas-empty" hidden="">No hay monitores activos para acomodar.</p>
+            <div class="displays-canvas-actions">
+              <button class="modal-btn small" type="button" id="displays-canvas-reset">↺ DESHACER CAMBIOS</button>
+              <button class="modal-btn small accept" type="button" id="displays-canvas-apply">✓ APLICAR</button>
+            </div>
+          </div>
+        </div>
+        <!-- Las acciones de marco (REFRESH + volver) se fueron al top bar
+             (SPEC-shell): REFRESH vive en la barra de Displays y el switch cumple
+             lo que hacía "← CLIPBOARD". Por eso ya no hay .modal-actions acá. -->
+      </div>
+    </section>
+
+    <!-- BOTTOM HUD ========================================================= -->
+    <footer class="status-strip">
+      <div class="status-item">
+        <span class="status-dot active"></span>
+        <span class="status-text mono" id="status-msg">SYS READY · awaiting input</span>
+      </div>
+      <div class="status-item">
+        <span class="status-key">PEERS</span>
+        <span class="status-val mono" id="status-peers">02</span>
+      </div>
+      <div class="status-item">
+        <span class="status-key">FAV</span>
+        <span class="status-val mono" id="status-fav">01</span>
+      </div>
+      <div class="status-item">
+        <label class="sound-toggle">
+          <input type="checkbox" id="sound-toggle">
+          <span class="sound-track"><span class="sound-thumb"></span></span>
+          <span class="status-key">CLACK</span>
+        </label>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Toast / alert (futuristic) — ephemeral ACK of an outgoing send -->
+  <div class="alert" id="toast" hidden="">
+    <div class="alert-corners">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <div class="alert-head">
+      <span class="alert-glyph">▸</span>
+      <span class="alert-title">TRANSMIT OK</span>
+    </div>
+    <div class="alert-body" id="toast-text"></div>
+  </div>
+
+  <!-- Incoming text — its OWN persistent surface so an outgoing ACK toast
+       can never wipe a received message before the user copies it. -->
+  <div class="alert" id="incoming-toast" hidden="">
+    <div class="alert-corners">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <div class="alert-head">
+      <span class="alert-glyph">◂</span>
+      <span class="alert-title" id="incoming-toast-title">INCOMING</span>
+    </div>
+    <div class="alert-body" id="incoming-toast-text"></div>
+  </div>
+
+  <!-- Incoming files modal -->
+  <div class="modal-backdrop" id="incoming-modal" hidden="">
+    <div class="modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">▾</span>
+        <span class="modal-title">INCOMING FILES</span>
+      </header>
+      <div class="modal-body">
+        <div class="modal-sender">
+          <span class="hud-label">FROM</span>
+          <span class="modal-sender-name" id="incoming-sender-name">—</span>
+          <span class="modal-sender-hex mono" id="incoming-sender-hex">—</span>
+        </div>
+        <div class="modal-stats mono">
+          <span><span id="incoming-file-count">0</span> FILES</span>
+          <span class="modal-stat-sep">·</span>
+          <span id="incoming-total-size">0 B</span>
+        </div>
+        <ul class="modal-file-list" id="incoming-file-list"></ul>
+        <div class="modal-timer mono" id="incoming-timer">awaiting decision · 60s</div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn reject" id="incoming-reject">✕ REJECT</button>
+        <button class="modal-btn accept" id="incoming-accept">▸ ACCEPT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Peer details modal -->
+  <div class="modal-backdrop" id="peer-details-modal" hidden="">
+    <div class="modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">◈</span>
+        <span class="modal-title" id="peer-details-title">PEER</span>
+      </header>
+      <div class="modal-body">
+        <div class="icon-picker-block">
+          <div class="icon-current" id="peer-details-icon-current"></div>
+          <div class="icon-picker" id="peer-details-icon-picker"></div>
+          <div class="icon-picker-hint mono">CHOOSE ICON FOR THIS PEER</div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">NAME</span>
+          <input type="text" class="text-input" id="peer-details-name" maxlength="64" autocomplete="off">
+        </div>
+        <div class="settings-row settings-info">
+          <span class="settings-label">FINGERPRINT</span>
+          <span class="settings-value mono" id="peer-details-fp"></span>
+        </div>
+        <div class="settings-row settings-info">
+          <span class="settings-label">ADDRESS</span>
+          <span class="settings-value mono" id="peer-details-addr"></span>
+        </div>
+        <div class="settings-row settings-info">
+          <span class="settings-label">STATUS</span>
+          <span class="settings-value mono" id="peer-details-status"></span>
+        </div>
+        <div class="settings-row settings-info" id="peer-details-tags-row">
+          <span class="settings-label">TAGS</span>
+          <span class="settings-value mono" id="peer-details-tags" hidden=""></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">★ FAVORITE</span>
+          <div class="settings-control">
+            <label class="sound-toggle">
+              <input type="checkbox" id="peer-details-fav">
+              <span class="sound-track"><span class="sound-thumb"></span></span>
+              <span class="settings-value mono" id="peer-details-fav-label">OFF</span>
+            </label>
+          </div>
+        </div>
+        <div class="settings-row" id="peer-details-clip-row">
+          <span class="settings-label">📋 CLIPBOARD SYNC</span>
+          <div class="settings-control">
+            <label class="sound-toggle">
+              <input type="checkbox" id="peer-details-clip">
+              <span class="sound-track"><span class="sound-thumb"></span></span>
+              <span class="settings-value mono" id="peer-details-clip-label">OFF</span>
+            </label>
+          </div>
+        </div>
+        <p class="forget-hint mono">Olvidar borra todo lo guardado de este equipo. Si sigue en la red, vuelve a aparecer en ALL.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn reject" id="peer-details-remove">🗑 FORGET PEER</button>
+        <button class="modal-btn accept" id="peer-details-close">✓ DONE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add peer by IP modal -->
+  <div class="modal-backdrop" id="add-peer-modal" hidden="">
+    <div class="modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">+</span>
+        <span class="modal-title">REGISTER PEER BY IP</span>
+      </header>
+      <div class="modal-body">
+        <p class="settings-label" style="margin-bottom:12px">Escribí la IP local del otro equipo. Tiene que tener Millennium abierto.</p>
+        <div class="settings-row">
+          <span class="settings-label">IP ADDRESS</span>
+          <input type="text" class="text-input" id="add-peer-ip" placeholder="192.168.1.42" autocomplete="off">
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">PORT</span>
+          <input type="number" class="text-input" id="add-peer-port" value="53319" min="1" max="65535">
+        </div>
+        <div class="modal-error mono" id="add-peer-error" hidden=""></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn reject" id="add-peer-cancel">✕ CANCEL</button>
+        <button class="modal-btn accept" id="add-peer-submit">▸ REGISTER</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ajustes de la APP (SPEC-shell "dos apps en una"). Lo que pinta todo el
+       programa, no una app puntual: apariencia, arranque con Windows, bandeja y
+       actualizador. Se abre con el botón ⚙ APP del top bar
+       (data-action="app-settings"). Es el mismo molde .settings-modal-wide; los
+       ids de los controles NO cambian (los handlers de guardado están atados por
+       id, no al modal). Chrome neutro: no vira con la app. -->
+  <div class="modal-backdrop" id="app-settings-modal" hidden="">
+    <div class="modal settings-modal-wide">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">⚙</span>
+        <span class="modal-title">APP SETTINGS</span>
+      </header>
+      <div class="modal-body settings-body">
+
+        <!-- APARIENCIA — cross-platform: el FX pinta TODA la pantalla, por eso
+             vive acá (app general) y no en Clipboard. Apagarlo = modo
+             GPU-barata / ahorro de batería. NO es .desktop-only. -->
+        <details class="settings-group" open="">
+          <summary>▸ APARIENCIA</summary>
+          <div class="settings-row">
+            <span class="settings-label">VISUAL FX (GRID / SCANLINE)</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-fx">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-fx-label">ON</span>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <!-- SYSTEM — every option below is desktop-only. -->
+        <details class="settings-group desktop-only">
+          <summary>▸ SYSTEM</summary>
+          <div class="settings-row">
+            <span class="settings-label">START WITH WINDOWS</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-autostart">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-autostart-label">OFF</span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">CLOSE TO TRAY</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-close-tray">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-close-tray-label">ON</span>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <!-- UPDATES — redesigned in v0.15.0: two stacked blocks instead of
+             nested flexbox so nothing overlaps on any screen width —
+               row 1: current version + CHECK button
+               row 2 (hidden until check finds something): status text
+                      + APPLY button — both full-width on a column. -->
+        <details class="settings-group">
+          <summary>▸ UPDATES</summary>
+          <div class="settings-row updates-row">
+            <div class="updates-block">
+              <div class="updates-line">
+                <span class="settings-label updates-label">CURRENT</span>
+                <span class="settings-value mono" id="settings-update-status">v0.0.0</span>
+              </div>
+              <button class="modal-btn updates-btn" id="settings-check-update">▸ CHECK FOR UPDATE</button>
+            </div>
+            <div class="updates-block updates-action" id="settings-update-action" hidden="">
+              <div class="updates-banner mono" id="settings-update-banner"></div>
+              <button class="modal-btn updates-btn accent" id="settings-apply-update">▸ DOWNLOAD &amp; INSTALL</button>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn accept" id="app-settings-close">✓ CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ajustes de CLIPBOARD (SPEC-shell). Lo propio del portapapeles: carpeta de
+       descargas, auto-aceptar de favoritos, notificaciones. Se abre con AJUSTES
+       de la barra de Clipboard (data-action="settings"). Chrome cyan (Clipboard);
+       hereda el color de la app activa por --app-accent en su scope. -->
+  <div class="modal-backdrop" id="clipboard-settings-modal" hidden="">
+    <div class="modal settings-modal-wide">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">▦</span>
+        <span class="modal-title">CLIPBOARD SETTINGS</span>
+      </header>
+      <div class="modal-body settings-body">
+
+        <!-- DOWNLOADS — cross-platform. -->
+        <details class="settings-group" open="">
+          <summary>▸ DOWNLOADS</summary>
+          <div class="settings-row">
+            <span class="settings-label">DOWNLOAD FOLDER</span>
+            <div class="settings-control">
+              <span class="settings-value mono" id="settings-download-dir">—</span>
+              <button class="modal-btn small" id="settings-pick-dir">▸ CHANGE</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- TRANSFERS & NOTIFICATIONS — desktop-only. On Android the OS shows an
+             accept prompt anyway and uses native OS toasts, so both toggles
+             would do nothing on mobile. -->
+        <details class="settings-group desktop-only" open="">
+          <summary>▸ TRANSFERS &amp; NOTIFICATIONS</summary>
+          <div class="settings-row">
+            <span class="settings-label">AUTO-ACCEPT FROM FAVORITES</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-auto-accept">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-auto-accept-label">OFF</span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">DESKTOP NOTIFICATIONS</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-notifications">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-notifications-label">ON</span>
+              </label>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn accept" id="clipboard-settings-close">✓ CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Runtime log modal -->
+  <div class="modal-backdrop" id="log-modal" hidden="">
+    <div class="modal log-modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">≡</span>
+        <span class="modal-title">RUNTIME LOG</span>
+        <span class="mono" id="log-line-count" style="margin-left:auto;font-size:10px;opacity:0.6">0 lines</span>
+      </header>
+      <div class="modal-body log-body">
+        <pre class="log-pane mono" id="log-pane"></pre>
+      </div>
+      <div class="modal-actions log-actions">
+        <label class="sound-toggle" style="display:flex;gap:6px;align-items:center">
+          <input type="checkbox" id="log-autoscroll" checked="">
+          <span class="sound-track"><span class="sound-thumb"></span></span>
+          <span class="mono" style="font-size:10px">AUTOSCROLL</span>
+        </label>
+        <button class="modal-btn small" id="log-copy">▸ COPY ALL</button>
+        <button class="modal-btn small" id="log-export">▸ EXPORT .TXT</button>
+        <button class="modal-btn small" id="log-clear">⌫ CLEAR</button>
+        <button class="modal-btn accept" id="log-close">✓ CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR pairing modal -->
+  <div class="modal-backdrop" id="qr-modal" hidden="">
+    <div class="modal qr-modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">▣</span>
+        <span class="modal-title">QR PAIRING</span>
+      </header>
+      <div class="qr-tabs">
+        <button class="qr-tab active" data-qr-tab="show">SHOW MY QR</button>
+        <button class="qr-tab" data-qr-tab="add">ADD FROM QR</button>
+      </div>
+      <div class="modal-body">
+        <div id="qr-pane-show" class="qr-pane">
+          <div class="qr-canvas" id="qr-canvas"></div>
+          <p class="qr-hint mono">Escaneá este código desde otro equipo con Millennium para vincularlo.</p>
+          <div class="settings-row settings-info">
+            <span class="settings-label">PAYLOAD</span>
+            <span class="settings-value mono" id="qr-payload" style="font-size:9px;word-break:break-all"></span>
+          </div>
+        </div>
+        <div id="qr-pane-add" class="qr-pane" hidden="">
+          <div id="qr-scan-block" hidden="" style="margin-bottom:14px">
+            <button class="modal-btn accept" id="qr-scan-btn" style="width:100%;min-height:52px;font-size:13px;letter-spacing:2px">▸ SCAN WITH CAMERA</button>
+            <p class="qr-hint mono" style="margin-top:8px">Tocá el botón y apuntá la cámara al código QR del otro equipo.</p>
+          </div>
+          <p class="qr-hint mono">O pegá acá el contenido del QR para agregar el equipo.</p>
+          <textarea class="text-input qr-paste" id="qr-paste-input" placeholder="{&quot;v&quot;:1,&quot;type&quot;:&quot;millennium-pair&quot;,...}"></textarea>
+          <div class="modal-error mono" id="qr-add-error" hidden=""></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn small" id="qr-copy-payload">▸ COPY PAYLOAD</button>
+        <button class="modal-btn accept" id="qr-add-submit" hidden="">▸ PAIR</button>
+        <button class="modal-btn accept" id="qr-close">✓ DONE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stack de banners de nivel app (fijo, arriba de todo). Dos moldes distintos
+       que pueden coexistir sin pisarse: el de error de backend (rojo) y el del
+       auto-revert de displays (ámbar). Al ser hijos en flujo del stack, se apilan
+       verticalmente en vez de superponerse (el spec pedía que no chocaran). -->
+  <div class="app-banners" id="app-banners">
+    <!-- Backend-error persistent banner (HTTPS bind failure, instance conflict) -->
+    <div class="backend-banner" id="backend-banner" hidden="">
+      <div class="backend-banner-inner">
+        <span class="backend-banner-glyph">⚠</span>
+        <div class="backend-banner-text">
+          <div class="backend-banner-title">BACKEND ERROR</div>
+          <div class="backend-banner-msg mono" id="backend-banner-msg"></div>
+        </div>
+        <button class="backend-banner-close" id="backend-banner-close" title="Dismiss">✕</button>
+      </div>
+    </div>
+
+    <!-- Banner GLOBAL del auto-revert (Displays v2 Fase 2). Antes era la barra
+         #displays-pending DENTRO del modal; ahora vive a nivel app, visible desde
+         cualquier sección. Conserva los mismos ids que ya maneja main.js
+         (renderDisplaysPending + los listeners de CONFIRMAR/REVERTIR), así el
+         cambio es de marco, no de lógica. Molde tomado de .backend-banner. -->
+    <div class="displays-banner" id="displays-pending" hidden="" role="alert">
+      <div class="displays-banner-inner">
+        <span class="displays-banner-glyph">⏱</span>
+        <span class="mono displays-banner-text" id="displays-pending-text">—</span>
+        <span class="displays-banner-actions">
+          <button class="modal-btn small accept" type="button" id="displays-confirm">✓ CONFIRMAR</button>
+          <button class="modal-btn small reject" type="button" id="displays-revert">↩ REVERTIR AHORA</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+
+
+</body></html>
