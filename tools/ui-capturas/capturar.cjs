@@ -56,11 +56,18 @@ function armarHtml(tmp, vista) {
 }
 
 // El volcado incluye <base> y los scripts del banco (rutas del checkout, no de
-// la app); se sacan para comparar solo la app.
+// la app); se sacan para comparar solo la app. También se sacan las etiquetas
+// que CARGAN archivos (<script src>, <link rel=stylesheet>) y los comentarios:
+// partir main.js/styles.css cambia cómo se cargan, no lo que se ve. Un archivo
+// que no cargara se nota igual: el DOM quedaría vacío o con error.
 function normalizar(s) {
   return s.replace(/\r\n/g, '\n')
     .replace(/<base href="[^"]*">/g, '')
-    .replace(/<script id="__banco_[a-z]+__">[\s\S]*?<\/script>/g, '');
+    .replace(/<script id="__banco_[a-z]+__">[\s\S]*?<\/script>/g, '')
+    .replace(/<script src="[^"]*"><\/script>/g, '')
+    .replace(/<link rel="stylesheet"[^>]*>/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\n[ \t]*(?=\n)/g, '');
 }
 
 function puertoLibre() {
@@ -159,9 +166,10 @@ function comparar() {
       ok = false;
       continue;
     }
-    // git puede haber pasado "antes" a CRLF al clonar en Windows.
-    const sa = fs.readFileSync(a, 'utf8').replace(/\r\n/g, '\n');
-    const sd = fs.readFileSync(d, 'utf8').replace(/\r\n/g, '\n');
+    // normalizar también al leer: git puede haber pasado "antes" a CRLF al
+    // clonar en Windows, y la referencia se guardó con reglas más cortas.
+    const sa = normalizar(fs.readFileSync(a, 'utf8'));
+    const sd = normalizar(fs.readFileSync(d, 'utf8'));
     const err = /id="__errores__"[^>]*>([^<]+)/.exec(sd);
     if (err) {
       console.error('[' + vista + '] hubo un error JS: ' + err[1].split('\n')[0]);

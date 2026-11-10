@@ -754,6 +754,13 @@
     </div>
   </div>
 
-  <script src="main.js"></script>
+  <!-- Scripts clásicos (sin módulos ni bundler) que comparten el ámbito global:
+       el orden de carga es el orden en que corría el viejo main.js. -->
+  <script src="js/comunes.js"></script>
+  <script src="js/clipboard.js"></script>
+  <script src="js/displays.js"></script>
+  <script src="js/displays-escenas.js"></script>
+  <script src="js/clipboard-modales.js"></script>
+  <script src="js/arranque.js"></script>
 </body>
 </html>
