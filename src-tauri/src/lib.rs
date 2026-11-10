@@ -1055,21 +1055,6 @@ fn set_clipboard_sync(
     Ok(())
 }
 
-#[tauri::command]
-fn get_runtime_log() -> String {
-    runtime_log::dump_all()
-}
-
-#[tauri::command]
-fn clear_runtime_log() {
-    runtime_log::clear();
-}
-
-#[tauri::command]
-fn set_log_panel_open(open: bool) {
-    runtime_log::set_panel_open(open);
-}
-
 /// Resolve a (possibly Android `content://`) path string to something
 /// `tokio::fs::File::open` can read. On non-Android targets and on
 /// Android paths that already look like filesystem paths, this is a
@@ -1637,16 +1622,6 @@ async fn displays_clear_profile_actions(
     {
         let _ = (&app, &name);
         Err(displays_no_disponible())
-    }
-}
-
-#[tauri::command]
-fn record_frontend_log(level: String, msg: String) {
-    let msg = log_format::limit_ui_msg(&msg);
-    match level.as_str() {
-        "ERR" | "ERROR" | "err" | "error" => runtime_log::err(format!("[ui] {}", msg)),
-        "WARN" | "warn" => runtime_log::warn(format!("[ui] {}", msg)),
-        _ => runtime_log::info(format!("[ui] {}", msg)),
     }
 }
 
@@ -2246,11 +2221,11 @@ pub fn run() {
             app::updater_cmds::check_for_update,
             app::updater_cmds::apply_update,
             set_clipboard_sync,
-            get_runtime_log,
-            clear_runtime_log,
-            set_log_panel_open,
+            app::runtime_log_cmds::get_runtime_log,
+            app::runtime_log_cmds::clear_runtime_log,
+            app::runtime_log_cmds::set_log_panel_open,
             app::updater_cmds::take_update_failure,
-            record_frontend_log,
+            app::runtime_log_cmds::record_frontend_log,
             set_peer_icon,
             forget_peer,
             set_notifications_enabled,
