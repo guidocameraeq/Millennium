@@ -2,9 +2,10 @@
 //
 // Wires identity, persisted prefs/settings, HTTPS server, mDNS discovery,
 // and the HTTPS client used to talk to peers. Commands invoked from JS
-// are at the bottom.
+// live in `app/`.
 
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_os = "android"))]
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
