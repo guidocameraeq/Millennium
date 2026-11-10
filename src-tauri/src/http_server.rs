@@ -234,12 +234,11 @@ async fn handle_text(
         sender_port,
         received_at: unix_now(),
     };
-    println!(
-        "[http] /text received {} chars from {} ({})",
+    crate::runtime_log::info(crate::log_format::text_received_line(
+        &evt.sender_alias,
+        &evt.sender_ip,
         evt.text.chars().count(),
-        evt.sender_alias,
-        evt.sender_ip
-    );
+    ));
     let _ = state.app.emit("incoming-text", &evt);
     StatusCode::OK
 }
@@ -339,13 +338,13 @@ async fn handle_prepare_upload(
     let total: u64 = req.files.iter().map(|f| f.size).sum();
     let sender_port = req.sender_port.unwrap_or(crate::discovery::DEFAULT_PORT);
     let sender_ip = addr.ip().to_string();
-    println!(
+    crate::runtime_log::info(format!(
         "[http] /prepare-upload from {} at {} ({} files, {} bytes)",
-        req.sender_alias,
+        crate::log_format::one_line(&req.sender_alias),
         sender_ip,
         req.files.len(),
         total
-    );
+    ));
 
     let settings = state.settings.snapshot();
     let is_fav = state.prefs.is_favorite(&req.sender_fingerprint);
@@ -542,12 +541,25 @@ async fn handle_upload(
     let (file, dest_dir, sender_alias) = {
         let sessions = state.sessions.lock().unwrap();
         let Some(session) = sessions.get(&session_id) else {
+            crate::runtime_log::err(format!(
+                "[http] /upload rejected: unknown session {}",
+                session_id.chars().take(8).collect::<String>()
+            ));
             return StatusCode::NOT_FOUND;
         };
         let Some(file) = session.files.get(&file_id) else {
+            crate::runtime_log::err(format!(
+                "[http] /upload rejected: unknown file in session from {}",
+                crate::log_format::one_line(&session.sender_alias)
+            ));
             return StatusCode::NOT_FOUND;
         };
         if file.token != q.token {
+            crate::runtime_log::err(format!(
+                "[http] /upload rejected: wrong token for {} from {}",
+                crate::log_format::one_line(&file.name),
+                crate::log_format::one_line(&session.sender_alias)
+            ));
             return StatusCode::UNAUTHORIZED;
         }
         (file.clone(), session.destination_dir.clone(), session.sender_alias.clone())
@@ -555,12 +567,22 @@ async fn handle_upload(
 
     // Resolve target path safely.
     let Some(target_path) = safe_join(&dest_dir, &file.name, file.rel_path.as_deref()) else {
-        eprintln!("[http] rejected unsafe path: {} / {:?}", file.name, file.rel_path);
+        crate::runtime_log::err(format!(
+            "[http] rejected unsafe path from {}: {} / {:?}",
+            crate::log_format::one_line(&sender_alias),
+            crate::log_format::one_line(&file.name),
+            file.rel_path
+        ));
         return StatusCode::BAD_REQUEST;
     };
     if let Some(parent) = target_path.parent() {
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            eprintln!("[http] mkdir {} failed: {}", parent.display(), e);
+            crate::runtime_log::err(format!(
+                "[http] receiving from {}: mkdir {} failed: {}",
+                crate::log_format::one_line(&sender_alias),
+                parent.display(),
+                e
+            ));
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
     }
@@ -586,18 +608,30 @@ async fn handle_upload(
                     .seek(std::io::SeekFrom::Start(resume_from))
                     .await
                 {
-                    eprintln!("[http] seek to {} failed: {}", resume_from, e);
+                    crate::runtime_log::err(format!(
+                        "[http] receiving from {}: seek to {} failed: {}",
+                        crate::log_format::one_line(&sender_alias),
+                        resume_from,
+                        e
+                    ));
                     return StatusCode::INTERNAL_SERVER_ERROR;
                 }
                 file.bytes_received.store(resume_from, Ordering::Relaxed);
-                eprintln!(
-                    "[http] /upload resuming {} from byte {}",
-                    file.name, resume_from
-                );
+                crate::runtime_log::info(format!(
+                    "[http] /upload resuming {} from {} from byte {}",
+                    crate::log_format::one_line(&file.name),
+                    crate::log_format::one_line(&sender_alias),
+                    resume_from
+                ));
                 f
             }
             Err(e) => {
-                eprintln!("[http] open for resume {} failed: {}", target_path.display(), e);
+                crate::runtime_log::err(format!(
+                    "[http] receiving from {}: open for resume {} failed: {}",
+                    crate::log_format::one_line(&sender_alias),
+                    target_path.display(),
+                    e
+                ));
                 return StatusCode::INTERNAL_SERVER_ERROR;
             }
         }
@@ -608,7 +642,12 @@ async fn handle_upload(
                 f
             }
             Err(e) => {
-                eprintln!("[http] create {} failed: {}", target_path.display(), e);
+                crate::runtime_log::err(format!(
+                    "[http] receiving from {}: create {} failed: {}",
+                    crate::log_format::one_line(&sender_alias),
+                    target_path.display(),
+                    e
+                ));
                 return StatusCode::INTERNAL_SERVER_ERROR;
             }
         }
@@ -625,12 +664,22 @@ async fn handle_upload(
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[http] body stream error: {}", e);
+                crate::runtime_log::err(format!(
+                    "[http] receiving {} from {}: body stream error (sender dropped?): {}",
+                    crate::log_format::one_line(&file.name),
+                    crate::log_format::one_line(&sender_alias),
+                    e
+                ));
                 return StatusCode::BAD_REQUEST;
             }
         };
         if let Err(e) = handle.write_all(&chunk).await {
-            eprintln!("[http] write failed: {}", e);
+            crate::runtime_log::err(format!(
+                "[http] receiving {} from {}: write failed (disk full?): {}",
+                crate::log_format::one_line(&file.name),
+                crate::log_format::one_line(&sender_alias),
+                e
+            ));
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
         if let Some(h) = hasher.as_mut() {
@@ -654,7 +703,12 @@ async fn handle_upload(
     }
 
     if let Err(e) = handle.flush().await {
-        eprintln!("[http] flush failed: {}", e);
+        crate::runtime_log::err(format!(
+            "[http] receiving {} from {}: flush failed: {}",
+            crate::log_format::one_line(&file.name),
+            crate::log_format::one_line(&sender_alias),
+            e
+        ));
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
     drop(handle);
@@ -664,7 +718,13 @@ async fn handle_upload(
         if &got == expected {
             true
         } else {
-            eprintln!("[http] hash mismatch: expected {} got {}", expected, got);
+            crate::runtime_log::err(format!(
+                "[http] receiving {} from {}: hash mismatch: expected {} got {}",
+                crate::log_format::one_line(&file.name),
+                crate::log_format::one_line(&sender_alias),
+                expected,
+                got
+            ));
             // Leave file on disk but flag it
             false
         }
@@ -699,21 +759,21 @@ async fn handle_upload(
             .await
             {
                 Ok(public_uri) => {
-                    eprintln!(
+                    crate::runtime_log::info(format!(
                         "[http] published {} to public Downloads: {}",
                         file.name, public_uri
-                    );
+                    ));
                     // Remove the private copy now that the public one
                     // is in MediaStore.
                     let _ = tokio::fs::remove_file(&target_path).await;
                 }
                 Err(e) => {
-                    eprintln!(
+                    crate::runtime_log::err(format!(
                         "[http] could not publish {} to /Downloads: {} (file stays at {})",
                         file.name,
                         e,
                         target_path.display()
-                    );
+                    ));
                 }
             }
         }
@@ -768,10 +828,13 @@ async fn handle_upload(
                     destination_dir: dir.to_string_lossy().to_string(),
                 },
             );
-            println!(
+            crate::runtime_log::info(format!(
                 "[http] session {} from {} done ({} files, {} bytes)",
-                session_id, alias, count, total_size
-            );
+                session_id,
+                crate::log_format::one_line(&alias),
+                count,
+                total_size
+            ));
         }
     }
 
@@ -838,7 +901,7 @@ async fn handle_clipboard(
     };
 
     if let Ok(Err(e)) = written {
-        eprintln!("[clipboard] failed to write OS clipboard: {}", e);
+        crate::runtime_log::err(format!("[clipboard] failed to write OS clipboard: {}", e));
     }
 
     let _ = state.app.emit(
@@ -943,10 +1006,10 @@ async fn handle_clipboard_image(
             .await
             {
                 Ok(uri) => {
-                    eprintln!("[clipboard] saved incoming image to {uri}");
+                    crate::runtime_log::info(format!("[clipboard] saved incoming image to {uri}"));
                 }
                 Err(e) => {
-                    eprintln!("[clipboard] save_image_to_gallery failed: {e}");
+                    crate::runtime_log::err(format!("[clipboard] save_image_to_gallery failed: {e}"));
                 }
             }
             Ok((w, h))
@@ -958,11 +1021,11 @@ async fn handle_clipboard_image(
     let (width, height) = match decoded {
         Ok(Ok(dims)) => dims,
         Ok(Err(e)) => {
-            eprintln!("[clipboard] failed to write image clipboard: {}", e);
+            crate::runtime_log::err(format!("[clipboard] failed to write image clipboard: {}", e));
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
         Err(e) => {
-            eprintln!("[clipboard] blocking task crashed: {}", e);
+            crate::runtime_log::err(format!("[clipboard] blocking task crashed: {}", e));
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
     };
@@ -992,7 +1055,7 @@ async fn handle_cancel(
             "session-cancelled",
             serde_json::json!({ "sessionId": session_id }),
         );
-        println!("[http] /cancel {} removed", session_id);
+        crate::runtime_log::info(format!("[http] /cancel {} removed", session_id));
     }
     StatusCode::OK
 }
