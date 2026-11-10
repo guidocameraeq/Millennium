@@ -2,7 +2,9 @@
 //!
 //! Movido tal cual desde `lib.rs` (encargo 04 de puesta-a-punto): solo cambian los `use` y la visibilidad.
 
-use crate::{runtime_log, updater};
+use crate::updater;
+#[cfg(target_os = "windows")]
+use crate::runtime_log;
 #[cfg(target_os = "android")]
 use crate::android_fs_bridge;
 #[cfg(target_os = "android")]
