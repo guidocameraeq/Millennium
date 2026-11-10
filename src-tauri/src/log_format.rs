@@ -95,6 +95,34 @@ pub fn one_line(s: &str) -> String {
     s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
+/// Hides the value of every query parameter (`?token=abc&x=1` becomes
+/// `?token=***&x=***`) in a URL or in an error text that quotes one. The
+/// upload token travels in the query and reqwest errors print the whole URL.
+/// Host, port and path are left as they are.
+pub fn redact_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('?') {
+        out.push_str(&rest[..=i]);
+        rest = &rest[i + 1..];
+        let end = rest
+            .find(|c: char| c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '<' | '>' | ']' | '#'))
+            .unwrap_or(rest.len());
+        let (query, tail) = rest.split_at(end);
+        let pairs: Vec<String> = query
+            .split('&')
+            .map(|p| match p.split_once('=') {
+                Some((k, _)) => format!("{}=***", k),
+                None => p.to_string(),
+            })
+            .collect();
+        out.push_str(&pairs.join("&"));
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// `alias (ip:port)`
 pub fn peer_label(alias: &str, ip: &str, port: u16) -> String {
     format!("{} ({}:{})", one_line(alias), one_line(ip), port)
@@ -122,7 +150,7 @@ pub fn send_failed_line(op: &str, alias: &str, ip: &str, port: u16, cause: &str)
         "[send] FAILED {} -> {}: {}",
         op,
         peer_label(alias, ip, port),
-        one_line(cause)
+        redact_query(&one_line(cause))
     )
 }
 

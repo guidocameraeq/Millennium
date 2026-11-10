@@ -116,6 +116,39 @@ fn un_alias_con_saltos_de_linea_no_falsifica_otra_linea() {
 }
 
 #[test]
+fn el_token_de_la_url_no_aparece_pero_la_ip_el_puerto_y_la_ruta_si() {
+    let url = "https://192.168.0.20:53317/upload/sesion1/archivo2?token=SECRETO";
+    let r = redact_query(url);
+    assert!(!r.contains("SECRETO"), "el token sigue en la URL: {r}");
+    assert_eq!(r, "https://192.168.0.20:53317/upload/sesion1/archivo2?token=***");
+}
+
+#[test]
+fn el_token_no_aparece_en_el_error_de_reqwest_que_cita_la_url() {
+    let causa = "POST https://192.168.0.20:53317/upload/s/f?token=SECRETO: error sending request for url (https://192.168.0.20:53317/upload/s/f?token=SECRETO): connection reset";
+    let l = send_failed_line("upload a.txt", "Notebook", "192.168.0.20", 53317, causa);
+    assert!(!l.contains("SECRETO"), "la línea filtra el token: {l}");
+    assert!(l.contains("192.168.0.20:53317/upload/s/f?token=***"));
+    assert!(l.contains("connection reset"));
+}
+
+#[test]
+fn cualquier_parametro_de_query_se_tapa_y_los_nombres_quedan() {
+    assert_eq!(
+        redact_query("http://x:1/p?a=1&token=zzz&b=dos tres"),
+        "http://x:1/p?a=***&token=***&b=*** tres"
+    );
+    assert_eq!(redact_query("(http://x:1/p?token=zzz)"), "(http://x:1/p?token=***)");
+}
+
+#[test]
+fn un_texto_sin_query_queda_igual() {
+    assert_eq!(redact_query("connection refused"), "connection refused");
+    assert_eq!(redact_query("https://10.0.0.1:1/info"), "https://10.0.0.1:1/info");
+    assert_eq!(redact_query("¿falló? sí"), "¿falló? sí");
+}
+
+#[test]
 fn la_linea_de_recepcion_lleva_quien_y_cuanto() {
     assert_eq!(
         text_received_line("Notebook", "192.168.0.20", 5),

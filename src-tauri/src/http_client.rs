@@ -385,8 +385,13 @@ pub async fn upload_file(
             Ok(()) => return Ok(()),
             Err(e) if attempt < MAX_ATTEMPTS => {
                 crate::runtime_log::warn(format!(
-                    "[upload] attempt {}/{} to {}:{} for {} failed: {:#} — retrying",
-                    attempt, MAX_ATTEMPTS, ip, port, file_id, e
+                    "[upload] attempt {}/{} to {}:{} for {} failed: {} — retrying",
+                    attempt,
+                    MAX_ATTEMPTS,
+                    ip,
+                    port,
+                    file_id,
+                    crate::log_format::redact_query(&format!("{:#}", e))
                 ));
                 tokio::time::sleep(std::time::Duration::from_millis(800 * attempt as u64)).await;
                 continue;
