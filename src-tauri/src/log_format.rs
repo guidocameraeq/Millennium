@@ -130,3 +130,34 @@ pub fn send_failed_line(op: &str, alias: &str, ip: &str, port: u16, cause: &str)
 pub fn text_received_line(alias: &str, ip: &str, chars: usize) -> String {
     format!("[http] /text received chars={} from {} ({})", chars, one_line(alias), one_line(ip))
 }
+
+/// The lines logged once at startup (encargo 02, sub-step 4): version, the
+/// adapters seen (used, or dropped and why), the IP announced and the port
+/// of the HTTPS server. First thing to read when "today it doesn't work".
+pub fn startup_diagnostic(
+    version: &str,
+    choice: &crate::net_ifaces::IfaceChoice,
+    chosen_ip: &str,
+    port: u16,
+) -> Vec<String> {
+    let mut lines = vec![format!(
+        "[diag] Millennium v{} · announced ip {} · server port {} · adapters: {} used, {} discarded",
+        one_line(version),
+        one_line(chosen_ip),
+        port,
+        choice.used.len(),
+        choice.discarded.len()
+    )];
+    for (name, ip) in &choice.used {
+        lines.push(format!("[diag]   adapter '{}' {} -> used", one_line(name), ip));
+    }
+    for (name, ip, why) in &choice.discarded {
+        lines.push(format!(
+            "[diag]   adapter '{}' {} -> discarded: {}",
+            one_line(name),
+            ip,
+            why.as_str()
+        ));
+    }
+    lines
+}

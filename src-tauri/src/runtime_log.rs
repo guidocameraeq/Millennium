@@ -279,6 +279,16 @@ pub fn clear() {
     s.lines.lock().unwrap().clear();
 }
 
+/// The startup diagnostic: version, adapters (used / discarded and why),
+/// the IP announced and the HTTPS port. Text built by `log_format`.
+pub fn log_startup_diagnostic(chosen_ip: &str, port: u16) {
+    let ifaces = local_ip_address::list_afinet_netifas().unwrap_or_default();
+    let choice = crate::net_ifaces::classify_ifaces(&ifaces);
+    for line in log_format::startup_diagnostic(env!("CARGO_PKG_VERSION"), &choice, chosen_ip, port) {
+        info(line);
+    }
+}
+
 /// Snapshot every routable IPv4 interface the OS exposes. We need this
 /// to diagnose the "local_ip pointed at WSL/Hyper-V instead of WiFi"
 /// class of bug — without it, we can't tell whether the wrong NIC was

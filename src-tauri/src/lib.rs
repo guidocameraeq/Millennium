@@ -2130,6 +2130,7 @@ pub fn run() {
                     requested_port, server_port
                 ));
             }
+            runtime_log::log_startup_diagnostic(&identity.local_ip, server_port);
             runtime_log::info(format!(
                 "[setup] spawning HTTPS server on 0.0.0.0:{}",
                 server_port

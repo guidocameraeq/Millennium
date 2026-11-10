@@ -128,3 +128,31 @@ fn un_mensaje_de_varias_lineas_queda_en_una_sola_linea_con_fecha() {
     let line = format_line(&stamp(2026, 11, 10, 23, 14, 5), "ERR ", "falló\nCaused by: timeout");
     assert_eq!(line, "2026-11-10 23:14:05 [ERR ] falló Caused by: timeout");
 }
+
+#[test]
+fn el_diagnostico_de_arranque_lleva_version_ip_puerto_y_placas() {
+    use crate::net_ifaces::classify_ifaces;
+    use std::net::IpAddr;
+    let ifaces: Vec<(String, IpAddr)> = vec![
+        ("Wi-Fi".to_string(), "192.168.0.15".parse().unwrap()),
+        ("vEthernet (WSL)".to_string(), "172.20.80.1".parse().unwrap()),
+        ("Loopback Pseudo-Interface 1".to_string(), "127.0.0.1".parse().unwrap()),
+    ];
+    let choice = classify_ifaces(&ifaces);
+    let lines = startup_diagnostic("1.5.3", &choice, "192.168.0.15", 53319);
+    assert_eq!(lines.len(), 4);
+    assert!(lines[0].contains("v1.5.3"));
+    assert!(lines[0].contains("announced ip 192.168.0.15"));
+    assert!(lines[0].contains("server port 53319"));
+    assert!(lines[0].contains("1 used, 2 discarded"));
+    assert!(lines[1].contains("'Wi-Fi' 192.168.0.15 -> used"));
+    assert!(lines[2].contains("'vEthernet (WSL)' 172.20.80.1 -> discarded: virtual adapter"));
+    assert!(lines[3].contains("-> discarded: loopback"));
+}
+
+#[test]
+fn el_diagnostico_sin_placas_igual_dice_la_ip_y_el_puerto() {
+    let lines = startup_diagnostic("1.5.3", &Default::default(), "10.0.0.2", 53319);
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].contains("0 used, 0 discarded"));
+}
