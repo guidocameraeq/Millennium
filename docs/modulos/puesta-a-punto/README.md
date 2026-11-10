@@ -1,5 +1,5 @@
 # Puesta a punto: red sana, errores guardados, código ordenado
-- Estado: EN OBRA
+- Estado: COMPLETO 2026-11-10
 - director: sí
 - rama: modulo/puesta-a-punto
 - Próximo paso: integrar el módulo a `main` (el director, con `worktree.cjs integrar`), para que el CI de `main` arme el `.exe` con el código ordenado (`build.yml` solo corre en `main`), sin release.
