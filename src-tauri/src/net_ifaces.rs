@@ -242,6 +242,17 @@ pub fn peer_fate(elapsed_secs: u64, ttl_secs: u64, is_favorite: bool) -> PeerFat
     }
 }
 
+/// The `status` the frontend gets for a peer in the map. Only `Online` is
+/// "online": a favorite just un-starred while silent is `Gone` until the next
+/// reaper pass, and must not flash as online meanwhile.
+pub fn fate_status(fate: PeerFate) -> &'static str {
+    if fate == PeerFate::Online {
+        "online"
+    } else {
+        "offline"
+    }
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

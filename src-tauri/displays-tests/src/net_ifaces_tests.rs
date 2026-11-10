@@ -347,3 +347,14 @@ fn no_favorito_vencido_desaparece_a_los_15_s() {
     assert_eq!(peer_fate(16, 15, false), PeerFate::Gone);
     assert_eq!(peer_fate(3600, 15, false), PeerFate::Gone);
 }
+
+use crate::net_ifaces::fate_status;
+
+#[test]
+fn solo_online_se_muestra_online() {
+    assert_eq!(fate_status(peer_fate(3, 15, false)), "online");
+    assert_eq!(fate_status(peer_fate(3, 15, true)), "online");
+    assert_eq!(fate_status(peer_fate(60, 15, true)), "offline");
+    // Favorito recién sacado de favoritos mientras estaba callado: Gone, no "online".
+    assert_eq!(fate_status(peer_fate(60, 15, false)), "offline");
+}

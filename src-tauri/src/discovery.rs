@@ -67,8 +67,8 @@ pub struct PeerRecord {
     /// The ip/port were confirmed by a real socket source: a TCP probe to
     /// /info, or the source IP of a UDP datagram. Once `true`, mDNS
     /// A-records (which can advertise a peer's virtual NICs) no longer
-    /// overwrite the route. Reset implicitly when the record is reaped and
-    /// re-learned from mDNS.
+    /// overwrite the route. Reset when the record is reaped and re-learned
+    /// from mDNS, or when a favorite goes offline (the reaper clears it).
     pub confirmed: bool,
 }
 
@@ -141,11 +141,11 @@ pub(crate) fn build_wire_list(
         // A favorite the reaper keeps past the TTL: same `status` field the
         // frontend already reads ("offline"), no new JSON field.
         let ttl = crate::udp_discovery::BROADCAST_INTERVAL_SECS.saturating_mul(3);
-        if crate::net_ifaces::peer_fate(record.last_seen.elapsed().as_secs(), ttl, is_fav)
-            == crate::net_ifaces::PeerFate::Offline
-        {
-            wire.status = "offline";
-        }
+        wire.status = crate::net_ifaces::fate_status(crate::net_ifaces::peer_fate(
+            record.last_seen.elapsed().as_secs(),
+            ttl,
+            is_fav,
+        ));
         wire.name = apply_alias(&record.id, wire.name);
         wire.icon_type = apply_icon(&record.id, wire.icon_type);
         result.push(wire);
@@ -413,6 +413,10 @@ pub fn start(
                             PeerFate::Offline => {
                                 if offline.insert(fp.clone()) {
                                     went_offline.push(rec.id.clone());
+                                    // The old route is no longer proven: let an
+                                    // mDNS A-record with a new IP replace it on
+                                    // return, as when the record was dropped.
+                                    rec.confirmed = false;
                                 }
                                 true
                             }
