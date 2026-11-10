@@ -29,9 +29,9 @@ pub fn format_stamp(t: &Stamp) -> String {
     )
 }
 
-/// The line written to the file (no trailing newline): `2026-11-10 23:14:05 [INFO] msg`.
+/// The line written to the file (one line: newlines in `msg` become spaces): `2026-11-10 23:14:05 [INFO] msg`.
 pub fn format_line(t: &Stamp, level: &str, msg: &str) -> String {
-    format!("{} [{}] {}", format_stamp(t), level, msg)
+    format!("{} [{}] {}", format_stamp(t), level, one_line(msg))
 }
 
 /// UTC fields from UNIX seconds. Fallback when the OS gives no local time.
@@ -80,4 +80,53 @@ pub fn rotation_plan() -> (Vec<String>, Vec<(String, String)>) {
     }
     renames.push(("runtime.log".to_string(), backup_name(1)));
     (deletes, renames)
+}
+
+// ---------------------------------------------------------------------------
+// What the network path writes (encargo 02, sub-step 3).
+//
+// These take sizes and names, never the text or clipboard itself: a secret
+// that was sent cannot end up in the log because it never reaches here.
+// ---------------------------------------------------------------------------
+
+/// Control characters (newlines included) become spaces: a peer alias or a
+/// file name must not be able to forge a log line.
+pub fn one_line(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
+}
+
+/// `alias (ip:port)`
+pub fn peer_label(alias: &str, ip: &str, port: u16) -> String {
+    format!("{} ({}:{})", one_line(alias), one_line(ip), port)
+}
+
+/// A text is being sent: only how long it is.
+pub fn send_text_line(alias: &str, ip: &str, port: u16, chars: usize) -> String {
+    format!("[send] text -> {} chars={}", peer_label(alias, ip, port), chars)
+}
+
+/// Files are being sent: how many, and the session.
+pub fn send_files_line(alias: &str, ip: &str, port: u16, files: usize, session: &str) -> String {
+    let short: String = session.chars().take(8).collect();
+    format!(
+        "[send] files -> {} files={} session={}",
+        peer_label(alias, ip, port),
+        files,
+        one_line(&short)
+    )
+}
+
+/// A send failed: what was being done, to whom, and why.
+pub fn send_failed_line(op: &str, alias: &str, ip: &str, port: u16, cause: &str) -> String {
+    format!(
+        "[send] FAILED {} -> {}: {}",
+        op,
+        peer_label(alias, ip, port),
+        one_line(cause)
+    )
+}
+
+/// A text arrived: from whom and how long, not what it said.
+pub fn text_received_line(alias: &str, ip: &str, chars: usize) -> String {
+    format!("[http] /text received chars={} from {} ({})", chars, one_line(alias), one_line(ip))
 }

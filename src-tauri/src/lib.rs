@@ -19,6 +19,7 @@ mod http_server;
 mod icon_overrides;
 mod identity;
 mod json_store;
+mod log_format;
 mod manual_peers;
 mod mdns_meter;
 mod net_ifaces;

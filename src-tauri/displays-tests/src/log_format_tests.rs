@@ -72,3 +72,59 @@ fn la_rotacion_pierde_el_mas_viejo_y_corre_los_demas_en_orden() {
         ]
     );
 }
+
+#[test]
+fn un_texto_secreto_no_aparece_en_ninguna_linea_de_envio() {
+    let secreto = "clave-super-secreta-123";
+    let largo = secreto.chars().count();
+    let lines = [
+        send_text_line("PC-Guido", "192.168.0.15", 53317, largo),
+        text_received_line("PC-Guido", "192.168.0.15", largo),
+        send_failed_line("text", "PC-Guido", "192.168.0.15", 53317, "connection refused"),
+    ];
+    for l in lines {
+        assert!(!l.contains(secreto), "la línea filtra el texto: {l}");
+        assert!(!l.contains("secreta"), "la línea filtra el texto: {l}");
+    }
+}
+
+#[test]
+fn la_linea_de_envio_lleva_peer_y_tamano() {
+    assert_eq!(
+        send_text_line("Notebook", "192.168.0.20", 53317, 23),
+        "[send] text -> Notebook (192.168.0.20:53317) chars=23"
+    );
+    assert_eq!(
+        send_files_line("Notebook", "192.168.0.20", 53317, 2, "0123456789abcdef"),
+        "[send] files -> Notebook (192.168.0.20:53317) files=2 session=01234567"
+    );
+}
+
+#[test]
+fn la_linea_de_fallo_lleva_peer_y_causa() {
+    assert_eq!(
+        send_failed_line("prepare", "Notebook", "192.168.0.20", 53317, "timed out"),
+        "[send] FAILED prepare -> Notebook (192.168.0.20:53317): timed out"
+    );
+}
+
+#[test]
+fn un_alias_con_saltos_de_linea_no_falsifica_otra_linea() {
+    let l = send_failed_line("text", "Malo\n2026-01-01 00:00:00 [INFO] fake", "10.0.0.1", 1, "x\r\ny");
+    assert!(!l.contains('\n') && !l.contains('\r'));
+    assert_eq!(one_line("a\tb\nc"), "a b c");
+}
+
+#[test]
+fn la_linea_de_recepcion_lleva_quien_y_cuanto() {
+    assert_eq!(
+        text_received_line("Notebook", "192.168.0.20", 5),
+        "[http] /text received chars=5 from Notebook (192.168.0.20)"
+    );
+}
+
+#[test]
+fn un_mensaje_de_varias_lineas_queda_en_una_sola_linea_con_fecha() {
+    let line = format_line(&stamp(2026, 11, 10, 23, 14, 5), "ERR ", "falló\nCaused by: timeout");
+    assert_eq!(line, "2026-11-10 23:14:05 [ERR ] falló Caused by: timeout");
+}
