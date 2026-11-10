@@ -1,4 +1,4 @@
-// Millennium Clipboard // GRID — frontend. Clipboard: peers, filtros, modos, envío, modales de entrada/ajustes/log/QR.
+// Millennium Clipboard // GRID — frontend. Clipboard: peers, filtros, modos, envío, modales de entrada/ajustes/log/QR. Ojo: acá viven también reportToBackend (errores de JS al log del backend) y el manejador de .hud-btn, que atiende acciones de Displays.
 // Script clásico: comparte el ámbito global con los demás de src/js/ (orden en index.html).
 'use strict';
 

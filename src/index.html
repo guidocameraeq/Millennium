@@ -38,8 +38,8 @@
         <!-- Switch héroe "dos apps en una" (SPEC-shell). Reemplaza los botoncitos
              CLIP|DISP y el viejo "← CLIPBOARD". Conserva id="hud-sections" y, por
              segmento, las TRES cosas que lo hacen andar: .hud-btn (el click es
-             por-elemento, main.js ~1079), data-action (el dispatch) y data-section
-             (el resaltado del activo). main.js lo revela solo fuera de Android
+             por-elemento, js/clipboard.js, "HUD action buttons"), data-action (el dispatch) y data-section
+             (el resaltado del activo). js/displays.js lo revela solo fuera de Android
              (displaysEnabled, userAgent — NO .desktop-only, que se activa también
              por ventana angosta); en Android queda oculto → app solo-Clipboard. -->
         <div class="hud-sections app-switch" id="hud-sections" hidden role="tablist" aria-label="Cambiar de app">
@@ -739,7 +739,7 @@
 
     <!-- Banner GLOBAL del auto-revert (Displays v2 Fase 2). Antes era la barra
          #displays-pending DENTRO del modal; ahora vive a nivel app, visible desde
-         cualquier sección. Conserva los mismos ids que ya maneja main.js
+         cualquier sección. Conserva los mismos ids que ya maneja src/js/
          (renderDisplaysPending + los listeners de CONFIRMAR/REVERTIR), así el
          cambio es de marco, no de lógica. Molde tomado de .backend-banner. -->
     <div class="displays-banner" id="displays-pending" hidden role="alert">

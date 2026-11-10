@@ -1,4 +1,4 @@
-// Millennium Clipboard // GRID — frontend. Displays (2/2): escenas, atajos, ajustes, lienzo y conexión de eventos.
+// Millennium Clipboard // GRID — frontend. Displays (2/2): escenas, atajos, ajustes, lienzo y conexión de eventos. Ojo: al final está el ESC global que cierra los modales de Clipboard.
 // Script clásico: comparte el ámbito global con los demás de src/js/ (orden en index.html).
 'use strict';
 

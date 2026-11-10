@@ -58,7 +58,10 @@ function armarHtml(tmp, vista) {
     'window.addEventListener("unhandledrejection",function(e){__err("JS REJECT: "+(e.reason&&e.reason.message||e.reason));});</script>',
   ].join('\n');
   const mock = '<script id="__banco_mock__">' + fs.readFileSync(path.join(AQUI, 'mock-tauri.js'), 'utf8') + '</script>';
-  html = html.replace(/<head>/i, () => '<head>' + base + errores + mock);
+  // Animaciones y transiciones apagadas solo en el banco: así la huella de
+  // estilos y las PNG no dependen de en qué cuadro cae la captura.
+  const quieto = '<style id="__banco_estilo__">*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}</style>';
+  html = html.replace(/<head>/i, () => '<head>' + base + errores + mock + quieto);
   const clics = VISTAS[vista];
   if (clics.length) {
     const js = 'window.addEventListener("load",function(){' + clics.map((sel, i) =>
@@ -80,6 +83,7 @@ function normalizar(s) {
   return s.replace(/\r\n/g, '\n')
     .replace(/<base href="[^"]*">/g, '')
     .replace(/<script id="__banco_[a-z]+__">[\s\S]*?<\/script>/g, '')
+    .replace(/<style id="__banco_estilo__">[\s\S]*?<\/style>/g, '')
     .replace(/<script src="[^"]*"><\/script>/g, '')
     .replace(/<link rel="stylesheet"[^>]*>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -138,6 +142,28 @@ async function evaluar(c, expression) {
   return r.result.value;
 }
 
+// Una línea por elemento (y por ::before/::after con contenido): ruta + huella
+// de TODOS sus estilos calculados. Detecta una regla que cambió de orden o se
+// perdió al partir styles.css, que el DOM solo no ve.
+const HUELLA = `(() => {
+  const h = (t) => { let x = 2166136261; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0).toString(16); };
+  // Edge lista las variables --x en orden cambiante: se ordenan antes de hashear.
+  const props = (cs) => Array.from(cs, (k) => k + ':' + cs.getPropertyValue(k)).sort().join(';').split(document.baseURI).join('~/');
+  const out = [];
+  // Sin <script> ni <link rel=stylesheet>: partir los archivos cambia cuántos hay.
+  Array.from(document.querySelectorAll('*:not(script):not(link[rel="stylesheet"])')).forEach((el, i) => {
+    const id = el.id ? '#' + el.id : '';
+    const cl = typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/).join('.') : '';
+    let l = i + ' ' + el.tagName.toLowerCase() + id + cl + ' ' + h(props(getComputedStyle(el)));
+    for (const p of ['::before', '::after']) {
+      const cs = getComputedStyle(el, p);
+      if (cs.content && cs.content !== 'none' && cs.content !== 'normal') l += ' ' + p + h(props(cs));
+    }
+    out.push(l);
+  });
+  return out.join('\\n');
+})()`;
+
 async function capturar(destino) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-capturas-'));
   const dir = path.join(CAPTURAS, destino);
@@ -163,6 +189,7 @@ async function capturar(destino) {
       await dormir(ESPERA_MS);
       const dom = await evaluar(c, 'document.documentElement.outerHTML');
       fs.writeFileSync(path.join(dir, vista + '.dom.html'), normalizar(dom));
+      fs.writeFileSync(path.join(dir, vista + '.estilos.txt'), (await evaluar(c, HUELLA)) + '\n');
       const llamadas = await evaluar(c, 'Array.from(new Set(window.__LLAMADAS__||[])).sort().join("\\n")');
       fs.writeFileSync(path.join(dir, vista + '.llamadas.txt'), llamadas + '\n');
       const sh = await c.llamar('Page.captureScreenshot', { format: 'png' });
@@ -182,10 +209,30 @@ async function capturar(destino) {
   }
 }
 
-function comparar() {
+// El DOM comparado no lleva las etiquetas de carga (normalizar las saca), así
+// que acá se mira aparte: todo archivo de src/js y src/css tiene su etiqueta.
+function cargaCompleta() {
+  const html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
   let ok = true;
+  for (const [carpeta, ext, etiqueta] of [['js', '.js', 'src="js/'], ['css', '.css', 'href="css/']]) {
+    const dir = path.join(SRC, carpeta);
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(ext))) {
+      if (!html.includes(etiqueta + f + '"')) {
+        console.error('index.html no carga ' + carpeta + '/' + f);
+        ok = false;
+      }
+    }
+  }
+  if (ok) console.log('index.html carga todo src/js y src/css');
+  return ok;
+}
+
+function comparar() {
+  let ok = cargaCompleta();
   for (const vista of Object.keys(VISTAS)) {
-    for (const [ext, norm] of [['dom.html', normalizar], ['llamadas.txt', (s) => s.replace(/\r\n/g, '\n')]]) {
+    const lf = (s) => s.replace(/\r\n/g, '\n');
+    for (const [ext, norm] of [['dom.html', normalizar], ['llamadas.txt', lf], ['estilos.txt', lf]]) {
       const a = path.join(CAPTURAS, 'antes', vista + '.' + ext);
       const d = path.join(CAPTURAS, 'despues', vista + '.' + ext);
       if (!fs.existsSync(a) || !fs.existsSync(d)) {
