@@ -126,6 +126,43 @@ pub fn diff_ips(old: &[IpAddr], new: &[IpAddr]) -> IpDiff {
     }
 }
 
+/// Why a send to a peer failed, as far as the cached HTTPS client is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendFailure {
+    /// Could not open the TCP/TLS connection (peer off, stale IP, no route).
+    Connect,
+    /// Connected, but the request timed out.
+    Timeout,
+    /// The cert did not hash to the pinned fingerprint. A new client would
+    /// pin the same thing and fail the same way.
+    Pin,
+    /// Anything else (body, decode, ...).
+    Other,
+}
+
+/// Classify a `reqwest` send error from its flags and the text of its whole
+/// source chain. Pure so it can be tested without a network: reqwest reports a
+/// failed handshake (including our pin) as a connect error, so the pin is told
+/// apart by the verifier's message.
+pub fn classify_send_failure(is_connect: bool, is_timeout: bool, chain: &str) -> SendFailure {
+    if chain.contains("fingerprint mismatch") {
+        SendFailure::Pin
+    } else if is_connect {
+        SendFailure::Connect
+    } else if is_timeout {
+        SendFailure::Timeout
+    } else {
+        SendFailure::Other
+    }
+}
+
+/// Should the cached client of that fingerprint be thrown away? Yes when the
+/// connection itself is dead (the pool may hold sockets to an address that no
+/// longer answers); no for a pin failure or anything unrelated to the socket.
+pub fn drops_client(kind: SendFailure) -> bool {
+    matches!(kind, SendFailure::Connect | SendFailure::Timeout)
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

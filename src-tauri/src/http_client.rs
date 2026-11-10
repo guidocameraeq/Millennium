@@ -129,6 +129,10 @@ fn build_client(expected_fp: Option<&str>) -> reqwest::Client {
         .use_preconfigured_tls(cfg)
         .pool_idle_timeout(Some(Duration::from_secs(90)))
         .pool_max_idle_per_host(8)
+        // A peer whose IP no longer answers must fail fast, not hang for the
+        // 300 s total below (encargo 03, criterio 4: <= 10 s).
+        .connect_timeout(Duration::from_secs(5))
+        .tcp_keepalive(Some(Duration::from_secs(30)))
         .timeout(Duration::from_secs(300))
         .build()
         .expect("build reqwest client")
@@ -138,9 +142,13 @@ fn build_client(expected_fp: Option<&str>) -> reqwest::Client {
 /// the fingerprint (or "__tofu__" for the discovery mode). The Mutex is held
 /// only long enough to clone the (Arc-backed) Client out — never across an
 /// await — so it respects the no-lock-across-await rule.
-fn client_for(expected_fp: Option<&str>) -> reqwest::Client {
+fn client_cache() -> &'static Mutex<HashMap<String, reqwest::Client>> {
     static CACHE: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn client_for(expected_fp: Option<&str>) -> reqwest::Client {
+    let cache = client_cache();
     let key = expected_fp
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_else(|| "__tofu__".to_string());
@@ -148,6 +156,37 @@ fn client_for(expected_fp: Option<&str>) -> reqwest::Client {
     map.entry(key)
         .or_insert_with(|| build_client(expected_fp))
         .clone()
+}
+
+/// Throw away the cached client of `expected_fp`. The next request builds a
+/// fresh one (new pool, no sockets to an address that stopped answering).
+/// In-flight requests keep their own Arc clone, so they are not cut.
+fn forget_client(expected_fp: Option<&str>) {
+    let key = expected_fp
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_else(|| "__tofu__".to_string());
+    client_cache().lock().unwrap().remove(&key);
+}
+
+/// `map_err` hook for every `send()`: when the failure is a dead connection
+/// (`net_ifaces::drops_client`), forget the cached client of that fingerprint.
+/// Pin failures and HTTP-level errors leave it alone. Returns the error as is.
+fn noting(expected_fp: Option<&str>) -> impl Fn(reqwest::Error) -> reqwest::Error + '_ {
+    move |e| {
+        let mut chain = e.to_string();
+        let mut src = std::error::Error::source(&e);
+        while let Some(s) = src {
+            chain.push_str(": ");
+            chain.push_str(&s.to_string());
+            src = s.source();
+        }
+        let kind =
+            crate::net_ifaces::classify_send_failure(e.is_connect(), e.is_timeout(), &chain);
+        if crate::net_ifaces::drops_client(kind) {
+            forget_client(expected_fp);
+        }
+        e
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +224,7 @@ async fn fetch_info_inner(ip: &str, port: u16, expected_fp: Option<&str>) -> Res
         .get(&url)
         .send()
         .await
+        .map_err(noting(expected_fp))
         .with_context(|| format!("GET {}", url))?;
     if !resp.status().is_success() {
         bail!("info endpoint returned {}", resp.status());
@@ -220,6 +260,7 @@ pub async fn post_text(
         .json(&TextPayload { text, sender_alias, sender_fingerprint, sender_port })
         .send()
         .await
+        .map_err(noting(Some(expected_fp)))
         .with_context(|| format!("POST {}", url))?;
     if !resp.status().is_success() {
         bail!("text endpoint returned {}", resp.status());
@@ -284,6 +325,7 @@ pub async fn prepare_upload(
         })
         .send()
         .await
+        .map_err(noting(Some(expected_fp)))
         .with_context(|| format!("POST {}", url))?;
     let status = resp.status();
     if status == reqwest::StatusCode::FORBIDDEN {
@@ -488,6 +530,7 @@ async fn upload_file_once(
         .body(reqwest::Body::wrap_stream(reader))
         .send()
         .await
+        .map_err(noting(Some(expected_fp)))
         .with_context(|| format!("POST {}", url))?;
 
     let _ = app.emit(
@@ -543,6 +586,7 @@ pub async fn post_clipboard(
         .json(&ClipboardPayload { text, sender_alias, sender_fingerprint })
         .send()
         .await
+        .map_err(noting(Some(receiver_fp)))
         .with_context(|| format!("POST {}", url))?;
     if resp.status() == reqwest::StatusCode::FORBIDDEN {
         // Peer hasn't opted into sync with us — silent skip.
@@ -580,9 +624,10 @@ pub async fn post_clipboard_image(
         })
         .send()
         .await
+        .map_err(noting(Some(receiver_fp)))
         .with_context(|| format!("POST {}", url))?;
     if resp.status() == reqwest::StatusCode::FORBIDDEN
-        || resp.status() == reqwest::StatusCode::NOT_FOUND
+        ||resp.status() == reqwest::StatusCode::NOT_FOUND
     {
         // Either the peer didn't enable sync, or it's an older client
         // without the image endpoint — silent skip in both cases.
