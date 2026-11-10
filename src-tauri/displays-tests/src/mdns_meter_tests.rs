@@ -22,7 +22,7 @@ fn cuenta_solo_lo_del_minuto_no_el_acumulado() {
     let now = snap(&[("respond", 130), ("browse", 4)]);
     let t = minute_report(&prev, &now, 1).expect("hubo tráfico");
     assert_eq!(t.responses, 30);
-    assert_eq!(t.queries, 1);
+    assert_eq!(t.query_packets, 1);
     assert_eq!(t.sent, 31);
 }
 
@@ -38,9 +38,9 @@ fn las_preguntas_salen_por_cada_placa_las_respuestas_no() {
         ("register-resend", 2),
     ]);
     let t = minute_report(&prev, &now, 2).expect("hubo tráfico");
-    assert_eq!(t.queries, 3);
-    assert_eq!(t.announces, 3);
-    assert_eq!(t.sent, 10 + (1 + 2 + 1) * 2 + 2);
+    assert_eq!(t.query_packets, 6);
+    assert_eq!(t.announce_packets, 4);
+    assert_eq!(t.sent, 10 + (1 + 2) * 2 + 1 * 2 + 2);
 }
 
 #[test]
@@ -71,6 +71,30 @@ fn la_linea_dice_el_numero_a_mirar() {
     let t = minute_report(&HashMap::new(), &snap(&[("respond", 7), ("browse", 1)]), 1)
         .expect("hubo tráfico");
     let line = t.line();
-    assert!(line.starts_with("[mdns] meter 60s: sent~8 packets on 1 adapter(s)"), "{line}");
+    assert!(line.starts_with("[mdns] meter 60s: sent>=8 packets on 1 adapter(s)"), "{line}");
     assert!(line.contains("queries heard 7"), "{line}");
+}
+
+#[test]
+fn con_dos_placas_el_parentesis_suma_lo_mandado() {
+    let now = snap(&[("respond", 50), ("browse", 10), ("register", 2), ("register-resend", 3)]);
+    let t = minute_report(&HashMap::new(), &now, 2).expect("hubo tráfico");
+    assert_eq!(t.query_packets, 20);
+    assert_eq!(t.announce_packets, 7);
+    assert_eq!(t.sent, t.responses + t.query_packets + t.announce_packets);
+    assert!(
+        t.line().starts_with(
+            "[mdns] meter 60s: sent>=77 packets on 2 adapter(s) (responses 50, queries 20, announces 7)"
+        ),
+        "{}",
+        t.line()
+    );
+}
+
+#[test]
+fn cache_refresh_addr_cuenta_un_paquete_por_host() {
+    // La librería suma 2 por host (A + AAAA) pero manda UN paquete.
+    let t = minute_report(&HashMap::new(), &snap(&[("cache-refresh-addr", 4)]), 1)
+        .expect("hubo tráfico");
+    assert_eq!(t.query_packets, 2);
 }
