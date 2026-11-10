@@ -99,8 +99,10 @@ impl IpDiff {
 
 /// Compare the adapter IPs in use (`old`) with a fresh enumeration (`new`).
 pub fn diff_ips(old: &[IpAddr], new: &[IpAddr]) -> IpDiff {
-    let _ = (old, new);
-    IpDiff::default()
+    IpDiff {
+        gone: old.iter().filter(|ip| !new.contains(ip)).copied().collect(),
+        added: new.iter().filter(|ip| !old.contains(ip)).copied().collect(),
+    }
 }
 
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
