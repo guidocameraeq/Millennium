@@ -296,11 +296,27 @@ pub fn start(
     let icons_for_task = icons.clone();
     let my_fingerprint = identity.fingerprint.clone();
     let app_handle = app.clone();
+    let local_ip_for_pick = identity.local_ip.clone();
 
     tauri::async_runtime::spawn(async move {
         loop {
             match receiver.recv_async().await {
                 Ok(event) => {
+                    // Only a peer that announced several addresses needs our
+                    // own adapter list (NIC enumeration is blocking, so it
+                    // runs off the reactor).
+                    let several = matches!(
+                        &event,
+                        ServiceEvent::ServiceResolved(info) if info.get_addresses().len() > 1
+                    );
+                    let local: Vec<std::net::Ipv4Addr> = if several {
+                        let fb = local_ip_for_pick.clone();
+                        tokio::task::spawn_blocking(move || local_v4_ips(&fb))
+                            .await
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                     handle_event(
                         event,
                         &my_fingerprint,
@@ -312,6 +328,7 @@ pub fn start(
                         &clipboard_for_task,
                         &icons_for_task,
                         &app_handle,
+                        &local,
                     );
                 }
                 Err(e) => {
@@ -841,6 +858,18 @@ fn mdns_ips(fallback: &str) -> Vec<IpAddr> {
     crate::net_ifaces::mdns_ip_list(&used, fallback)
 }
 
+/// Our real adapters' IPv4s (same list and fallback as the mDNS daemon uses),
+/// for `pick_peer_addr`. Blocking (NIC enumeration).
+fn local_v4_ips(fallback: &str) -> Vec<std::net::Ipv4Addr> {
+    mdns_ips(fallback)
+        .into_iter()
+        .filter_map(|ip| match ip {
+            IpAddr::V4(v4) => Some(v4),
+            IpAddr::V6(_) => None,
+        })
+        .collect()
+}
+
 /// Enable (`on`) or disable each of `ips` on the daemon, logging each one.
 fn set_mdns_ifaces(daemon: &ServiceDaemon, ips: &[IpAddr], on: bool) {
     for ip in ips {
@@ -915,6 +944,7 @@ fn handle_event(
     clipboard: &Arc<ClipboardSyncStore>,
     icons: &Arc<crate::icon_overrides::IconOverrideStore>,
     app: &AppHandle,
+    local: &[std::net::Ipv4Addr],
 ) {
     match event {
         ServiceEvent::ServiceResolved(info) => {
@@ -938,22 +968,11 @@ fn handle_event(
                 .unwrap_or("desktop")
                 .to_string();
             let candidates: Vec<IpAddr> = info.get_addresses().iter().copied().collect();
-            // With one address there is nothing to choose (and no NIC
-            // enumeration); with several, prefer the one on a subnet of one
-            // of our real adapters.
-            let local: Vec<std::net::Ipv4Addr> = if candidates.len() > 1 {
-                local_ip_address::list_afinet_netifas()
-                    .map(|ifaces| crate::net_ifaces::classify_ifaces(&ifaces).used)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|(_, ip)| ip)
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            // `local` = our real adapters' IPs, listed by the caller off the
+            // reactor (only when the peer announced several addresses).
             let ip = crate::net_ifaces::pick_peer_addr(
                 &candidates,
-                &local,
+                local,
                 crate::net_ifaces::ASSUMED_PREFIX,
             )
             .map(|a| a.to_string())

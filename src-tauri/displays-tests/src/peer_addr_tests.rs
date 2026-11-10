@@ -70,3 +70,12 @@ fn misma_subred_segun_el_prefijo() {
     assert!(same_subnet(a, Ipv4Addr::new(192, 168, 2, 42), 16));
     assert!(!same_subnet(a, Ipv4Addr::new(192, 168, 1, 200), 0));
 }
+
+#[test]
+fn con_dos_candidatas_en_mi_subred_gana_la_primera_de_las_dos() {
+    let cands = [v4(172, 20, 0, 1), v4(192, 168, 1, 77), v4(192, 168, 1, 78)];
+    assert_eq!(
+        pick_peer_addr(&cands, &mine(&[[192, 168, 1, 42]]), 24),
+        Some(v4(192, 168, 1, 77))
+    );
+}
