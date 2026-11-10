@@ -163,6 +163,38 @@ pub fn drops_client(kind: SendFailure) -> bool {
     matches!(kind, SendFailure::Connect | SendFailure::Timeout)
 }
 
+/// Prefix length assumed for every adapter: the adapter list we have
+/// (`local_ip_address`) carries no netmask. /24 is what home routers hand out;
+/// on a wider LAN the directed hello just lands on a plain host address and the
+/// `255.255.255.255` hello (always sent too) still does the job.
+pub const ASSUMED_PREFIX: u8 = 24;
+
+/// Directed-broadcast address of the subnet `ip/prefix`. `None` when the
+/// subnet has none (/31, /32) or the prefix is nonsense (/0, > 32).
+pub fn directed_broadcast(ip: Ipv4Addr, prefix: u8) -> Option<Ipv4Addr> {
+    if prefix == 0 || prefix > 30 {
+        return None;
+    }
+    let host_mask = u32::MAX >> prefix;
+    Some(Ipv4Addr::from(u32::from(ip) | host_mask))
+}
+
+/// Where the UDP hello goes besides `255.255.255.255`: the directed broadcast
+/// of each real adapter's subnet, once per subnet, in adapter order. Windows
+/// sends the limited broadcast out of ONE adapter only; a directed one is
+/// routed out of the adapter that owns that subnet.
+pub fn hello_targets(used: &[(String, Ipv4Addr)], prefix: u8) -> Vec<Ipv4Addr> {
+    let mut out: Vec<Ipv4Addr> = Vec::new();
+    for (_, ip) in used {
+        if let Some(b) = directed_broadcast(*ip, prefix) {
+            if !out.contains(&b) {
+                out.push(b);
+            }
+        }
+    }
+    out
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

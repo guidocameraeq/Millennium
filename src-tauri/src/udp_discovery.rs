@@ -146,6 +146,21 @@ async fn run(
     loop {
         tokio::select! {
             _ = tick.tick() => {
+                // Same bytes, extra destinations: the directed broadcast of
+                // each real adapter's subnet (re-read every tick, so a roam or
+                // a plugged cable is picked up). Best effort: failures here
+                // never count against the global broadcast below.
+                let targets = tokio::task::spawn_blocking(directed_targets)
+                    .await
+                    .unwrap_or_default();
+                for t in targets {
+                    let dest = SocketAddr::new(IpAddr::V4(t), UDP_DISCOVERY_PORT);
+                    if let Err(e) = socket.send_to(&bytes, dest).await {
+                        if send_count % 12 == 0 {
+                            crate::runtime_log::warn(format!("[udp] hello to {} failed: {}", t, e));
+                        }
+                    }
+                }
                 match socket.send_to(&bytes, broadcast).await {
                     Ok(_) => {
                         send_count += 1;
@@ -186,6 +201,15 @@ async fn run(
             }
         }
     }
+}
+
+/// Directed-broadcast targets for the real adapters (`net_ifaces` rule).
+/// Blocking: enumerates the NICs.
+fn directed_targets() -> Vec<Ipv4Addr> {
+    let used = local_ip_address::list_afinet_netifas()
+        .map(|ifaces| crate::net_ifaces::classify_ifaces(&ifaces).used)
+        .unwrap_or_default();
+    crate::net_ifaces::hello_targets(&used, crate::net_ifaces::ASSUMED_PREFIX)
 }
 
 fn build_socket() -> Result<UdpSocket> {
