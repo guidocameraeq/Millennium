@@ -1,0 +1,540 @@
+/* Millennium Clipboard // GRID — estilos. Comunes: variables, fuentes, fondo, shell, HUD superior y grilla principal. */
+/* Hoja suelta: el orden de carga está en index.html. */
+
+/* ==========================================================================
+   Millennium Clipboard // GRID
+   Direction B: TRON / Outrun maximalist — neon, perspective grid, HUD.
+   ========================================================================== */
+
+/* Self-hosted fonts (Fase 3, Tarea 3.2) — were Google Fonts <link>s, moved
+   local so a strict CSP (default-src 'self') doesn't block them and the app
+   works fully offline. woff2, latin subset. Orbitron & JetBrains Mono are
+   variable fonts (one file covers the whole weight range). Files in src/fonts/.
+   Licenses: SIL Open Font License 1.1 (all four). */
+@font-face {
+  font-family: 'Orbitron';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('../fonts/orbitron.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Audiowide';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/audiowide-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Share Tech Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/sharetechmono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../fonts/jetbrainsmono.woff2') format('woff2');
+}
+
+:root {
+  /* Palette */
+  --bg-deep: #02020a;
+  --bg-base: #050513;
+  --bg-card: rgba(8, 12, 28, 0.72);
+  --bg-card-hi: rgba(14, 22, 44, 0.85);
+
+  --neon-cyan: #00f0ff;
+  --neon-cyan-dim: #0a8fa0;
+  --neon-cyan-glow: rgba(0, 240, 255, 0.55);
+  --neon-cyan-soft: rgba(0, 240, 255, 0.12);
+
+  /* Color por app (SPEC-shell "dos apps en una"). Token semántico del acento
+     activo. Por DEFECTO = cyan: el boot arranca teñido de Clipboard sin que el
+     JS tenga que setear nada (switchSection no corre al arrancar). Solo la app
+     Displays lo redefine a violeta (regla body[data-app="displays"] abajo). Lo
+     usa SOLO el chrome nuevo (switch, barras por app, marco) y el bloque de
+     reglas de Displays; los 222 --neon-cyan del resto de la hoja NO se tocan. */
+  --app-accent: var(--neon-cyan);
+  --app-accent-dim: var(--neon-cyan-dim);
+  --app-accent-glow: var(--neon-cyan-glow);
+  --app-accent-soft: var(--neon-cyan-soft);
+
+  --neon-magenta: #ff2bd6;
+  --neon-magenta-glow: rgba(255, 43, 214, 0.45);
+
+  --neon-amber: #ffb347;
+  --neon-green: #39ff14;
+  --neon-red: #ff3860;
+
+  --text-bright: #e6fbff;
+  --text-mute: #7894a8;
+  --text-dim: #607c8f; /* T6: raised from #455d70 for legibility (WCAG AA 4.7:1) */
+
+  --grid-line: rgba(0, 240, 255, 0.08);
+  --grid-line-hot: rgba(0, 240, 255, 0.22);
+
+  /* Fonts */
+  --font-display: 'Orbitron', 'Audiowide', sans-serif;
+  --font-logo: 'Audiowide', 'Orbitron', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Share Tech Mono', 'Consolas', monospace;
+  --font-tech: 'Share Tech Mono', 'JetBrains Mono', monospace;
+}
+
+/* La app Displays vira el acento a violeta. #b45cff pasa AA (≈5.7:1) como texto
+   sobre los fondos oscuros de Displays, así que sirve de acento completo (texto,
+   bordes y glow). El magenta (--neon-magenta) sigue marcando "lo elegido" DENTRO
+   de Displays; esto es solo el color del marco. La franja del resto de la app
+   (Clipboard, modales generales, banners) queda en cyan porque no usa
+   --app-accent. */
+body[data-app="displays"] {
+  --app-accent: #b45cff;
+  --app-accent-dim: #7a3db8;
+  --app-accent-glow: rgba(180, 92, 255, 0.5);
+  --app-accent-soft: rgba(180, 92, 255, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--neon-cyan);
+  color: var(--bg-deep);
+}
+
+/* ==========================================================================
+   BACKGROUND LAYERS
+   Stacked, fixed, behind everything.
+   ========================================================================== */
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(20, 30, 80, 0.6) 0%, var(--bg-deep) 65%),
+    var(--bg-deep);
+  z-index: -10;
+}
+
+.bg-horizon {
+  position: fixed;
+  left: -10%;
+  right: -10%;
+  bottom: -10vh;
+  height: 75vh;
+  perspective: 320px;
+  perspective-origin: 50% 0%;
+  z-index: -9;
+  pointer-events: none;
+}
+
+.horizon-floor {
+  position: absolute;
+  inset: 0;
+  transform: rotateX(62deg);
+  transform-origin: 50% 0%;
+}
+
+/* Grid lines live on ::before and scroll via transform (compositor-only,
+   no repaint). The extra 64px cell above hides the seam of the loop —
+   translateY distance and background-size must both stay at 64px. */
+.horizon-floor::before {
+  content: '';
+  position: absolute;
+  inset: -64px 0 0 0;
+  background-image:
+    linear-gradient(var(--grid-line-hot) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line-hot) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px;
+  will-change: transform;
+}
+
+/* Horizon glow stays static above the moving lines (paints after ::before). */
+.horizon-floor::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(255, 43, 214, 0.06) 60%,
+    rgba(0, 240, 255, 0.18) 100%);
+}
+
+@keyframes grid-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(64px); }
+}
+
+.bg-vignette {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 30%,
+    rgba(0, 0, 0, 0.65) 100%
+  );
+  z-index: -5;
+  pointer-events: none;
+}
+
+/* Single horizontal scanline drifting down */
+.scanline {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 1000;
+  pointer-events: none;
+  background: linear-gradient(to right,
+    transparent 0%,
+    var(--neon-cyan) 35%,
+    rgba(255, 255, 255, 0.9) 50%,
+    var(--neon-cyan) 65%,
+    transparent 100%);
+  box-shadow: 0 0 18px var(--neon-cyan-glow);
+  opacity: 0.55;
+}
+
+@keyframes scan-drop {
+  0%   { transform: translateY(-4px); opacity: 0; }
+  5%   { opacity: 0.55; }
+  95%  { opacity: 0.55; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* Subtle noise */
+.noise {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.7'/></svg>");
+}
+
+/* ==========================================================================
+   APP SHELL
+   ========================================================================== */
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+  padding: 18px 22px;
+  gap: 14px;
+}
+
+/* ==========================================================================
+   TOP HUD
+   ========================================================================== */
+
+.hud {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 18px;
+  background: linear-gradient(180deg,
+    rgba(0, 240, 255, 0.06) 0%,
+    rgba(0, 240, 255, 0.02) 100%);
+  /* SPEC-shell: el marco del top bar vira con la app (cyan⇄violeta) vía
+     --app-accent. Por defecto = cyan (idéntico a hoy); solo cambia en Displays. */
+  border: 1px solid var(--app-accent-soft);
+  border-bottom-color: var(--app-accent-glow);
+  box-shadow:
+    0 0 24px var(--app-accent-soft),
+    inset 0 -1px 0 var(--app-accent-glow);
+  position: relative;
+}
+
+.hud::before,
+.hud::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--app-accent);
+  box-shadow: 0 0 8px var(--app-accent-glow);
+}
+.hud::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.hud::after  { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+
+/* Logo */
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.logo-mark {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+  letter-spacing: -2px;
+}
+
+.logo-text {
+  font-family: var(--font-logo);
+  font-size: 18px;
+  letter-spacing: 4px;
+  color: var(--text-bright);
+  text-shadow: 0 0 18px var(--neon-cyan-glow);
+}
+
+.logo-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* HUD center stats */
+.hud-center {
+  display: flex;
+  gap: 28px;
+}
+
+.hud-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.hud-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+.hud-value {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+  text-shadow: 0 0 6px var(--neon-cyan-soft);
+}
+
+.hud-value.mono {
+  font-family: var(--font-mono);
+}
+
+/* HUD right buttons */
+.hud-right {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.hud-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease-out;
+}
+
+.hud-btn-glyph {
+  /* SPEC-shell: los glyphs de la barra viran con la app (--app-accent). El de
+     ⚙ APP se neutraliza aparte (.app-settings-btn) y los del switch llevan color
+     fijo por segmento (.app-switch), ambos con más especificidad. */
+  color: var(--app-accent);
+  text-shadow: 0 0 8px var(--app-accent-glow);
+}
+
+.hud-btn:hover {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 16px var(--app-accent-glow), inset 0 0 12px var(--app-accent-soft);
+  color: var(--app-accent);
+}
+
+.hud-btn:active {
+  transform: translateY(1px);
+}
+
+/* Pestañas de sección CLIPBOARD | DISPLAYS (Displays v2 Fase 2). Reusan el molde
+   .hud-btn; la activa queda iluminada como un .hud-btn:hover fijo. El grupo
+   arranca hidden y main.js lo revela solo fuera de Android (userAgent), así en
+   Android no queda una pestaña muerta. */
+.hud-sections {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.hud-sections[hidden] { display: none !important; }
+
+/* Compactas: son DOS teclas donde antes había una (DISP). Con este padding más
+   corto, las 6 teclas del HUD entran en la ventana por defecto (1080). */
+.hud-section-btn {
+  padding: 7px 9px;
+}
+
+.hud-section-btn.is-active {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: 0 0 16px var(--neon-cyan-glow), inset 0 0 12px rgba(0, 240, 255, 0.08);
+}
+
+/* Con la tecla extra, el HUD se aprieta antes de que entre el modo mobile
+   (pre.js lo activa recién en <=900). En la franja angosta de escritorio
+   (901–1040) escondemos las stats HOST/NODE del centro — lo menos crítico —
+   para que SCAN/LOG/QR/CLIP/DISP/CONF siempre entren sin cortarse. Arriba de
+   1040 (incluye el 1080 por defecto) las stats se ven normal. */
+@media (max-width: 1040px) {
+  .hud-center { display: none; }
+}
+
+/* ==========================================================================
+   MAIN GRID
+   ========================================================================== */
+
+.grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  min-height: 0;
+}
+
+/* --- Secciones de nivel superior (Displays v2 Fase 2) -------------------- */
+/* CLIPBOARD (.grid) y DISPLAYS (.displays-section) comparten la fila central
+   (1fr) del grid de .app; solo una está a la vista. En desktop auto-ubican bien
+   porque siempre hay exactamente UNA visible (la otra es display:none). En
+   mobile .app pasa a flex-column y estas reglas no estorban (displays igual no
+   se renderiza en Android). Se ocultan con [hidden], NUNCA se desmontan: un
+   transfer en curso del clipboard sobrevive el ida y vuelta.
+   El !important es la piedra de siempre: .grid trae display:grid y
+   .displays-section trae display:flex, y cualquier `display` del autor le gana
+   al [hidden] del user-agent (ver .hud-btn[hidden], .displays-pane[hidden]). */
+#clipboard-section[hidden],
+.displays-section[hidden] { display: none !important; }
+
+.displays-section {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+/* Generic card frame */
+.card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-shadow:
+    0 0 32px rgba(0, 240, 255, 0.05),
+    inset 0 0 60px rgba(0, 240, 255, 0.02);
+}
+
+/* Decorative corner brackets on cards */
+.card-corners {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.card-corners span {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--neon-cyan);
+  box-shadow: 0 0 6px var(--neon-cyan-glow);
+}
+.card-corners span:nth-child(1) { top: -1px;    left: -1px;    border-right: none; border-bottom: none; }
+.card-corners span:nth-child(2) { top: -1px;    right: -1px;   border-left:  none; border-bottom: none; }
+.card-corners span:nth-child(3) { bottom: -1px; left: -1px;    border-right: none; border-top:    none; }
+.card-corners span:nth-child(4) { bottom: -1px; right: -1px;   border-left:  none; border-top:    none; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+
+.card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-bright);
+  text-shadow: 0 0 12px var(--neon-cyan-glow);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan), 0 0 18px var(--neon-cyan-glow);
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+
+.card-arrow {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+}
+
+.target {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 12px var(--neon-cyan-glow);
+  margin-left: 4px;
+}
+
+.target-hex {
+  display: none;
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 2px;
+}
+
+.badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 3px 8px;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.05);
+}
+
