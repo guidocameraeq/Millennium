@@ -795,7 +795,8 @@ fn sanitize_hostname(s: &str) -> String {
 /// The IPs the mDNS daemon listens and answers on: every real LAN adapter
 /// (`net_ifaces` rule), in the system's order. When the rule keeps none,
 /// `fallback` (the IP identity resolved, maybe the routing-table one), so an
-/// odd adapter name never leaves the daemon deaf. Blocking (NIC enumeration).
+/// odd adapter name does not leave the daemon deaf while identity has an IP.
+/// Blocking (NIC enumeration).
 fn mdns_ips(fallback: &str) -> Vec<IpAddr> {
     let mut ips: Vec<IpAddr> = local_ip_address::list_afinet_netifas()
         .map(|ifaces| crate::net_ifaces::classify_ifaces(&ifaces).used)
