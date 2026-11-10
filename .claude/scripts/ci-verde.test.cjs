@@ -75,3 +75,33 @@ test('resumen: última línea con sha corto, cantidad y estado', () => {
   assert.strictEqual(resumen('a8a575a3929f', 3, 1), 'ci-verde @a8a575a: 3 checks · rojo');
   assert.strictEqual(resumen('a8a575a3929f', 0, 2), 'ci-verde @a8a575a: 0 checks · corriendo');
 });
+
+const { decidir, textoHttp } = require('./ci-verde.cjs');
+const MIN = 60000;
+
+test('decidir: sin --esperar devuelve el código tal cual', () => {
+  assert.deepStrictEqual(decidir({ codigo: 2, total: 1 }, false, 0), { codigo: 2 });
+  assert.deepStrictEqual(decidir({ codigo: 0, total: 1 }, true, 0), { codigo: 0 });
+  assert.deepStrictEqual(decidir({ codigo: 1, total: 1 }, true, 0), { codigo: 1 });
+});
+
+test('decidir: con --esperar y corriendo → seguir hasta los 25 min, después 2', () => {
+  assert.deepStrictEqual(decidir({ codigo: 2, total: 2 }, true, 10 * MIN), { seguir: true });
+  assert.deepStrictEqual(decidir({ codigo: 2, total: 2 }, true, 25 * MIN), { codigo: 2 });
+});
+
+test('decidir: con --esperar y sin checks → seguir antes de 3 min, 1 con aviso después', () => {
+  assert.deepStrictEqual(decidir({ codigo: 2, total: 0 }, true, 2 * MIN), { seguir: true });
+  const d = decidir({ codigo: 2, total: 0 }, true, 3 * MIN);
+  assert.strictEqual(d.codigo, 1);
+  assert.ok(d.aviso);
+});
+
+test('textoHttp: explica 401/403/404/422 y no se rompe con otros', () => {
+  for (const c of [401, 403, 404, 422]) assert.match(textoHttp(c), new RegExp(`${c}: `));
+  assert.strictEqual(textoHttp(500), 'la API contestó 500');
+});
+
+test('resumen: error sin verificar', () => {
+  assert.strictEqual(resumen('a8a575a3929f', 0, null), 'ci-verde @a8a575a: 0 checks · sin verificar');
+});

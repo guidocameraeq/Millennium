@@ -42,8 +42,26 @@ function sinChecksVencido(total, transcurridoMs) {
   return total === 0 && transcurridoMs >= SIN_CHECKS_MS;
 }
 
+// Qué hacer tras una consulta: { codigo } si ya se puede salir, { seguir: true } si toca reconsultar.
+function decidir(v, esperar, pasadoMs) {
+  if (v.codigo !== 2 || !esperar) return { codigo: v.codigo };
+  if (sinChecksVencido(v.total, pasadoMs)) return { codigo: 1, aviso: 'no apareció ningún check en 3 min' };
+  if (pasadoMs < TOPE_MS) return { seguir: true };
+  return { codigo: 2 };
+}
+
+function textoHttp(status) {
+  const t = {
+    401: 'la credencial no sirve (venció o es inválida)',
+    403: 'GitHub rechazó la consulta (límite de consultas sin credencial o falta de permiso)',
+    404: 'GitHub no ve el repo (privado sin credencial)',
+    422: 'GitHub no conoce ese commit (¿falta el git push?)',
+  };
+  return `la API contestó ${status}${t[status] ? ': ' + t[status] : ''}`;
+}
+
 function resumen(sha, total, codigo) {
-  const estado = codigo === 0 ? 'verde' : codigo === 1 ? 'rojo' : 'corriendo';
+  const estado = codigo === null ? 'sin verificar' : codigo === 0 ? 'verde' : codigo === 1 ? 'rojo' : 'corriendo';
   return `ci-verde @${String(sha).slice(0, 7)}: ${total} checks · ${estado}`;
 }
 
@@ -59,7 +77,8 @@ function token() {
       input: 'protocol=https\nhost=github.com\n\n',
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+      timeout: 10000,
     });
     const m = /^password=(.*)$/m.exec(out);
     return m ? m[1].trim() : null;
@@ -76,9 +95,10 @@ function pedir(ruta, tk) {
       let cuerpo = '';
       res.on('data', (d) => (cuerpo += d));
       res.on('end', () => {
-        if (res.statusCode !== 200) return reject(new Error(`la API contestó ${res.statusCode}`));
+        if (res.statusCode !== 200) return reject(new Error(textoHttp(res.statusCode)));
         try { resolve(JSON.parse(cuerpo)); } catch { reject(new Error('respuesta que no es JSON')); }
       });
+      res.on('error', reject);
     });
     req.on('timeout', () => req.destroy(new Error('sin respuesta en 20 s')));
     req.on('error', reject);
@@ -98,6 +118,12 @@ async function checkRuns(dueño, repo, sha, tk) {
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function noVerificado(sha, porque) {
+  console.log(`NO VERIFICADO: ${porque}`);
+  console.log(resumen(sha || '0000000', 0, null));
+  return 1;
+}
+
 async function main(argv) {
   const esperar = argv.includes('--esperar');
   const ref = argv.find((a) => !a.startsWith('--')) || 'HEAD';
@@ -107,13 +133,9 @@ async function main(argv) {
     sha = git(['rev-parse', '--verify', `${ref}^{commit}`]);
     dr = dueñoRepo(git(['remote', 'get-url', 'origin']));
   } catch (e) {
-    console.log(`NO VERIFICADO: no pude resolver ${ref} o el remote origin`);
-    return 1;
+    return noVerificado(sha, `no pude resolver ${ref} o el remote origin`);
   }
-  if (!dr) {
-    console.log('NO VERIFICADO: el remote origin no es un repo de github.com');
-    return 1;
-  }
+  if (!dr) return noVerificado(sha, 'el remote origin no es un repo de github.com');
   const tk = token();
   const inicio = Date.now();
   for (;;) {
@@ -121,28 +143,24 @@ async function main(argv) {
     try {
       v = veredicto(await checkRuns(dr.dueño, dr.repo, sha, tk));
     } catch (e) {
-      console.log(`NO VERIFICADO: ${e.message}`);
-      return 1;
+      return noVerificado(sha, e.message);
     }
-    const pasado = Date.now() - inicio;
-    let codigo = v.codigo;
-    if (esperar && codigo === 2) {
-      if (sinChecksVencido(v.total, pasado)) {
-        console.log('no apareció ningún check en 3 min');
-        codigo = 1;
-      } else if (pasado < TOPE_MS) {
-        await dormir(CADA_MS);
-        continue;
-      }
+    const d = decidir(v, esperar, Date.now() - inicio);
+    if (d.seguir) {
+      await dormir(CADA_MS);
+      continue;
     }
+    if (d.aviso) console.log(d.aviso);
     for (const n of v.fallados) console.log(`FALLÓ: ${n}`);
-    console.log(resumen(sha, v.total, codigo));
-    return codigo;
+    console.log(resumen(sha, v.total, d.codigo));
+    return d.codigo;
   }
 }
 
 if (require.main === module) {
-  main(process.argv.slice(2)).then((c) => process.exit(c));
+  main(process.argv.slice(2))
+    .catch((e) => noVerificado(null, e && e.message ? e.message : 'error inesperado'))
+    .then((c) => process.exit(c));
 }
 
-module.exports = { veredicto, dueñoRepo, sinChecksVencido, resumen };
+module.exports = { veredicto, dueñoRepo, sinChecksVencido, resumen, decidir, textoHttp };
