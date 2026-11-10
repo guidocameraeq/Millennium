@@ -67,6 +67,32 @@ pub fn is_virtual_iface(name: &str) -> bool {
 /// IPv4) and discarded ones. Keeps the input order, so `used[0]` is the
 /// adapter identity has always picked.
 pub fn classify_ifaces(ifaces: &[(String, IpAddr)]) -> IfaceChoice {
-    let _ = ifaces;
-    IfaceChoice::default()
+    let mut choice = IfaceChoice::default();
+    for (name, ip) in ifaces {
+        let why = match ip {
+            IpAddr::V6(_) => Some(Discard::NotIpv4),
+            IpAddr::V4(v4) => v4_discard(name, *v4),
+        };
+        match (why, ip) {
+            (None, IpAddr::V4(v4)) => choice.used.push((name.clone(), *v4)),
+            (why, _) => choice
+                .discarded
+                .push((name.clone(), *ip, why.unwrap_or(Discard::NotIpv4))),
+        }
+    }
+    choice
+}
+
+fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
+    if ip.is_loopback() {
+        Some(Discard::Loopback)
+    } else if ip.is_link_local() {
+        Some(Discard::LinkLocal)
+    } else if !ip.is_private() {
+        Some(Discard::NotPrivate)
+    } else if is_virtual_iface(name) {
+        Some(Discard::Virtual)
+    } else {
+        None
+    }
 }
