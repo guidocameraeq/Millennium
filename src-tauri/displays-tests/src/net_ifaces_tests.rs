@@ -261,3 +261,65 @@ fn otro_error_no_tira_el_cliente() {
     assert_eq!(k, SendFailure::Other);
     assert!(!drops_client(k));
 }
+
+// --- directed_broadcast / hello_targets: el hello por cada placa real ---
+
+use crate::net_ifaces::{directed_broadcast, hello_targets, ASSUMED_PREFIX};
+
+#[test]
+fn broadcast_de_una_24() {
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 24),
+        Some(Ipv4Addr::new(192, 168, 1, 255))
+    );
+}
+
+#[test]
+fn broadcast_de_otras_mascaras() {
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(192, 168, 5, 42), 23),
+        Some(Ipv4Addr::new(192, 168, 5, 255))
+    );
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(192, 168, 4, 42), 23),
+        Some(Ipv4Addr::new(192, 168, 5, 255))
+    );
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(10, 3, 4, 5), 8),
+        Some(Ipv4Addr::new(10, 255, 255, 255))
+    );
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(172, 16, 9, 9), 16),
+        Some(Ipv4Addr::new(172, 16, 255, 255))
+    );
+}
+
+#[test]
+fn sin_broadcast_en_punto_a_punto_o_mascara_rara() {
+    // /31 y /32 no tienen broadcast; /0 sería mandar al mundo entero.
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 32), None);
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 31), None);
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 0), None);
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 33), None);
+}
+
+#[test]
+fn hello_sale_por_la_subred_de_cada_placa_real() {
+    let u = used(&[("Ethernet", [192, 168, 0, 10]), ("Wi-Fi", [192, 168, 1, 42])]);
+    assert_eq!(
+        hello_targets(&u, ASSUMED_PREFIX),
+        vec![Ipv4Addr::new(192, 168, 0, 255), Ipv4Addr::new(192, 168, 1, 255)]
+    );
+}
+
+#[test]
+fn dos_placas_en_la_misma_subred_mandan_un_solo_hello() {
+    let u = used(&[("Ethernet", [192, 168, 1, 10]), ("Wi-Fi", [192, 168, 1, 42])]);
+    assert_eq!(hello_targets(&u, 24), vec![Ipv4Addr::new(192, 168, 1, 255)]);
+}
+
+#[test]
+fn sin_placas_reales_no_hay_hello_dirigido() {
+    // Queda solo el 255.255.255.255 de siempre (lo manda udp_discovery aparte).
+    assert!(hello_targets(&[], ASSUMED_PREFIX).is_empty());
+}
