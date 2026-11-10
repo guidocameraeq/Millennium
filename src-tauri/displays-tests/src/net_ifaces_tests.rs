@@ -216,3 +216,48 @@ fn la_misma_ip_dos_veces_cuenta_una() {
     let u = used(&[("Wi-Fi", [192, 168, 1, 42]), ("Wi-Fi", [192, 168, 1, 42])]);
     assert_eq!(mdns_ip_list(&u, ""), vec![v4(192, 168, 1, 42)]);
 }
+
+// --- classify_send_failure / drops_client: qué error tira el cliente cacheado ---
+
+use crate::net_ifaces::{classify_send_failure, drops_client, SendFailure};
+
+#[test]
+fn ip_que_no_responde_es_conexion_y_tira_el_cliente() {
+    let k = classify_send_failure(true, true, "error trying to connect: tcp connect error: timed out");
+    assert_eq!(k, SendFailure::Connect);
+    assert!(drops_client(k));
+}
+
+#[test]
+fn conexion_rechazada_tira_el_cliente() {
+    let k = classify_send_failure(true, false, "tcp connect error: Connection refused (os error 10061)");
+    assert_eq!(k, SendFailure::Connect);
+    assert!(drops_client(k));
+}
+
+#[test]
+fn timeout_sin_conectar_tira_el_cliente() {
+    let k = classify_send_failure(false, true, "operation timed out");
+    assert_eq!(k, SendFailure::Timeout);
+    assert!(drops_client(k));
+}
+
+#[test]
+fn pin_que_no_coincide_no_tira_el_cliente() {
+    // reqwest lo marca como error de conexión (falló el handshake), pero un
+    // cliente nuevo con la misma huella fallaría igual: no se descarta.
+    let k = classify_send_failure(
+        true,
+        false,
+        "error trying to connect: invalid peer certificate: cert fingerprint mismatch: expected ab12, got cd34",
+    );
+    assert_eq!(k, SendFailure::Pin);
+    assert!(!drops_client(k));
+}
+
+#[test]
+fn otro_error_no_tira_el_cliente() {
+    let k = classify_send_failure(false, false, "error decoding response body");
+    assert_eq!(k, SendFailure::Other);
+    assert!(!drops_client(k));
+}
