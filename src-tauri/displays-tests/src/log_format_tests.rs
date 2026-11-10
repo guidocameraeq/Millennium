@@ -73,19 +73,175 @@ fn la_rotacion_pierde_el_mas_viejo_y_corre_los_demas_en_orden() {
     );
 }
 
-#[test]
-fn un_texto_secreto_no_aparece_en_ninguna_linea_de_envio() {
-    let secreto = "clave-super-secreta-123";
-    let largo = secreto.chars().count();
-    let lines = [
-        send_text_line("PC-Guido", "192.168.0.15", 53317, largo),
-        text_received_line("PC-Guido", "192.168.0.15", largo),
-        send_failed_line("text", "PC-Guido", "192.168.0.15", 53317, "connection refused"),
-    ];
-    for l in lines {
-        assert!(!l.contains(secreto), "la línea filtra el texto: {l}");
-        assert!(!l.contains("secreta"), "la línea filtra el texto: {l}");
+// ---------------------------------------------------------------------------
+// El secreto no llega al log: se lee el código real de las llamadas, porque
+// los armadores de línea solo reciben tamaños y nombres (no hay secreto que
+// pasarles). Una llamada a `runtime_log::info/warn/err` que meta el texto, el
+// portapapeles o la imagen en el mensaje hace fallar este test.
+// ---------------------------------------------------------------------------
+
+/// Nombres (o caminos con puntos) que llevan contenido del usuario.
+const CON_CONTENIDO: &[&str] = &[
+    "text",
+    "payload.text",
+    "evt.text",
+    "content",
+    "clip",
+    "clipboard",
+    "last_text",
+    "text_for_write",
+    "png_base64",
+    "payload.png_base64",
+    "b64",
+];
+
+/// Lo que se le puede preguntar a un contenido sin mostrarlo: el tamaño.
+const SOLO_TAMANO: &[&str] = &["len", "chars", "is_empty"];
+
+/// Los argumentos (entre paréntesis) de cada llamada a `runtime_log::info/warn/err`.
+fn argumentos_de_llamadas_al_log(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for marca in ["runtime_log::info(", "runtime_log::warn(", "runtime_log::err("] {
+        let mut desde = 0;
+        while let Some(i) = src[desde..].find(marca) {
+            let ini = desde + i + marca.len();
+            let mut hondo = 1;
+            let mut en_cadena = false;
+            let mut previo = ' ';
+            let mut fin = src.len();
+            for (j, c) in src[ini..].char_indices() {
+                if en_cadena {
+                    if c == '"' && previo != '\' {
+                        en_cadena = false;
+                    }
+                } else if c == '"' {
+                    en_cadena = true;
+                } else if c == '(' {
+                    hondo += 1;
+                } else if c == ')' {
+                    hondo -= 1;
+                    if hondo == 0 {
+                        fin = ini + j;
+                        break;
+                    }
+                }
+                previo = if previo == '\' && c == '\' { ' ' } else { c };
+            }
+            out.push(src[ini..fin].to_string());
+            desde = ini;
+        }
     }
+    out
+}
+
+/// ¿Este camino con puntos (`payload.text.chars`) muestra un contenido?
+fn muestra_contenido(camino: &str) -> bool {
+    let partes: Vec<&str> = camino.split('.').collect();
+    for n in 1..=partes.len() {
+        if CON_CONTENIDO.contains(&partes[..n].join(".").as_str()) {
+            return !(n < partes.len() && SOLO_TAMANO.contains(&partes[n]));
+        }
+    }
+    false
+}
+
+/// Los contenidos que se interpolan en los argumentos de una llamada: como
+/// código (`text`, `&payload.text`) o dentro del texto (`"{text}"`). Las
+/// palabras sueltas dentro de un texto fijo no cuentan.
+fn contenidos_en_argumentos(args: &str) -> Vec<String> {
+    let mut hallados = Vec::new();
+    let cs: Vec<char> = args.chars().collect();
+    let es_id = |c: char| c.is_alphanumeric() || c == '_';
+    let mut i = 0;
+    let mut en_cadena = false;
+    while i < cs.len() {
+        let c = cs[i];
+        if en_cadena {
+            if c == '\' {
+                i += 2;
+                continue;
+            }
+            if c == '"' {
+                en_cadena = false;
+            } else if c == '{' && cs.get(i + 1) != Some(&'{') {
+                let mut j = i + 1;
+                let mut nombre = String::new();
+                while j < cs.len() && (es_id(cs[j]) || cs[j] == '.') {
+                    nombre.push(cs[j]);
+                    j += 1;
+                }
+                if muestra_contenido(&nombre) {
+                    hallados.push(format!("{{{}}}", nombre));
+                }
+            }
+            i += 1;
+        } else if c == '"' {
+            en_cadena = true;
+            i += 1;
+        } else if c.is_alphabetic() || c == '_' {
+            let mut j = i;
+            let mut camino = String::new();
+            while j < cs.len() && (es_id(cs[j]) || cs[j] == '.') {
+                camino.push(cs[j]);
+                j += 1;
+            }
+            // `a::b::text` no es el contenido: solo cuenta el camino que empieza solo.
+            let precedido_por_camino = i >= 2 && cs[i - 1] == ':' && cs[i - 2] == ':';
+            if !precedido_por_camino && muestra_contenido(&camino) {
+                hallados.push(camino);
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    hallados
+}
+
+#[test]
+fn el_detector_marca_el_contenido_y_deja_pasar_el_tamano() {
+    // sí: el contenido entra al mensaje
+    assert!(!contenidos_en_argumentos(r#"format!("{text}")"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("copiado: {}", text)"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("copiado: {}", &payload.text)"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("{:?}", evt.text)"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("{}", clip)"#).is_empty());
+    // no: el tamaño, las palabras de un texto fijo y los demás nombres
+    assert!(contenidos_en_argumentos(r#"format!("{} bytes", text.len())"#).is_empty());
+    assert!(contenidos_en_argumentos("log_format::send_text_line(&n, &ip, 1, text.chars().count())").is_empty());
+    assert!(contenidos_en_argumentos(r#"format!("[clipboard] text sync to {}:{} failed", ip, port)"#).is_empty());
+    assert!(contenidos_en_argumentos(r#"format!("{} {}", payload.sender_alias, e)"#).is_empty());
+}
+
+#[test]
+fn el_detector_encuentra_las_llamadas_al_log_con_sus_argumentos() {
+    let src = r#"fn f() { runtime_log::warn(format!("a ) {}", x.len())); otra(); runtime_log::info("fijo"); }"#;
+    let args = argumentos_de_llamadas_al_log(src);
+    assert_eq!(args.len(), 2);
+    assert!(args.iter().any(|a| a == r#"format!("a ) {}", x.len())"#));
+    assert!(args.iter().any(|a| a == r#""fijo""#));
+}
+
+#[test]
+fn un_texto_secreto_no_llega_a_ninguna_llamada_al_log() {
+    let fuentes = [
+        ("lib.rs", include_str!("../../src/lib.rs")),
+        ("http_server.rs", include_str!("../../src/http_server.rs")),
+        ("http_client.rs", include_str!("../../src/http_client.rs")),
+    ];
+    let mut llamadas = 0;
+    let mut filtran = Vec::new();
+    for (nombre, src) in fuentes {
+        for args in argumentos_de_llamadas_al_log(src) {
+            llamadas += 1;
+            for h in contenidos_en_argumentos(&args) {
+                filtran.push(format!("{nombre}: `{h}` en runtime_log::…({})", args.replace('\n', " ")));
+            }
+        }
+    }
+    // Si el buscador dejara de ver las llamadas, el test pasaría sin mirar nada.
+    assert!(llamadas >= 40, "el buscador vio solo {llamadas} llamadas al log");
+    assert!(filtran.is_empty(), "una llamada al log mete contenido del usuario:\n{}", filtran.join("\n"));
 }
 
 #[test]
