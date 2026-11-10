@@ -59,6 +59,11 @@ pub mod log_format;
 #[cfg(test)]
 mod log_format_tests;
 
+// La vista de un monitor y sus funciones puras (encargo 06): antes sus tests vivían
+// en `displays/mod.rs` bajo `cfg(not(windows))` y no corrían en ningún lado.
+#[cfg(test)]
+mod displays_view_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -72,6 +77,9 @@ pub mod displays {
 
     #[path = "../../../src/displays/store.rs"]
     pub mod store;
+
+    #[path = "../../../src/displays/view.rs"]
+    pub mod view;
 
     #[path = "../../../src/displays/watchdog.rs"]
     pub mod watchdog;
