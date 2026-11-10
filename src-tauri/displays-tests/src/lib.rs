@@ -41,6 +41,13 @@ pub mod net_ifaces;
 #[cfg(test)]
 mod net_ifaces_tests;
 
+// El medidor de mDNS (mismo encargo): de las métricas del daemon, la línea del minuto.
+#[path = "../../src/mdns_meter.rs"]
+pub mod mdns_meter;
+
+#[cfg(test)]
+mod mdns_meter_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
