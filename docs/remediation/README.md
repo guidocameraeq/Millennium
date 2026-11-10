@@ -10,12 +10,6 @@ Esta carpeta contiene **dos specs ejecutables** para llevar Millennium Clipboard
 docs/remediation/
 ├── README.md                     ← estás acá
 ├── 00-SHARED-CONTEXT.md          ← LEER PRIMERO: arquitectura, build, convenciones
-├── windows/
-│   ├── SPEC.md                   ← índice + criterios de aceptación del spec Windows
-│   ├── phase-0-stop-the-bleed.md ← el consumo de CPU/RAM (empezar acá)
-│   ├── phase-1-discovery.md      ← el parpadeo de peers (Rust compartido)
-│   ├── phase-2-correctness.md    ← pérdida de datos + bugs de UI
-│   └── phase-3-security.md       ← pinning de certificado, CSP, escaping
 └── android/
     ├── SPEC.md                   ← decisión estratégica + índice del spec Android
     ├── phase-A-lifecycle-and-approval.md   ← servicio + aprobación nativa (mayor impacto)
@@ -25,13 +19,13 @@ docs/remediation/
 
 ## Cómo usarlo
 
-1. Abrí el proyecto en Opus 4.8 (o Claude Code) desde `D:\Millenium Clipboard\millennium-clipboard`.
+1. Abrí Claude Code en la raíz del proyecto (hoy `C:\Users\guido\Desktop\(1) Claude\Millennium`).
 2. Pedile que **lea `docs/remediation/00-SHARED-CONTEXT.md`** y el `SPEC.md` de la plataforma que quieras arreglar.
 3. Que ejecute **una fase por vez, en orden**, verificando el criterio de aceptación de cada una antes de seguir.
 
-### Prompt sugerido para arrancar (Windows)
+### Prompt sugerido para arrancar (Windows) — histórico, ya ejecutado
 
-> Vas a ejecutar un plan de remediación. Primero leé `docs/remediation/00-SHARED-CONTEXT.md` completo, después `docs/remediation/windows/SPEC.md`. Empezá por `docs/remediation/windows/phase-0-stop-the-bleed.md`: implementá todas sus Tareas en orden, compilá, corré la sección "Cómo verificar", commiteá, y reportame qué hiciste y qué verificaste. No sigas a la Fase 1 hasta que la Fase 0 esté verificada y yo confirme.
+> Vas a ejecutar un plan de remediación. Primero leé `docs/remediation/00-SHARED-CONTEXT.md` completo, después `docs/archive/remediation-windows-SPEC.md`. Empezá por `docs/archive/phase-0-stop-the-bleed.md`: implementá todas sus Tareas en orden, compilá, corré la sección "Cómo verificar", commiteá, y reportame qué hiciste y qué verificaste. No sigas a la Fase 1 hasta que la Fase 0 esté verificada y yo confirme.
 
 ### Prompt sugerido para arrancar (Android)
 

@@ -1,4 +1,4 @@
-# CLAUDE.md — Reglas para Claude Code en Millennium Clipboard
+# CLAUDE.md — Reglas para Claude Code en Millennium
 
 > Solo reglas de comportamiento. Arquitectura, schemas, debugging → archivos dedicados (ver mapa de docs).
 > Test por línea antes de agregar nada: **si borro esta línea, ¿Claude se equivoca? Si no, sobra.**
@@ -6,9 +6,15 @@
 
 ## Qué es esto
 
-**Millennium Clipboard**: utilidad **solo-LAN** (sin nube, sin cuentas) que comparte texto, archivos y portapapeles entre **Windows desktop** y **Android** en la misma Wi-Fi. Stack: **Tauri 2** — backend Rust (~5.5k LOC en `src-tauri/src/`), frontend JS/CSS vanilla sin framework ni bundler (~5k LOC en `src/`); transporte HTTPS (axum + rustls) con certificados auto-firmados por dispositivo. El dueño la usa a diario en desktop pese a los bugs; la de Android nunca funcionó bien. No es programador fuerte de Rust/sistemas.
+**Millennium**: dos herramientas **solo-LAN** (sin nube, sin cuentas) en una app, detrás de un switch CLIP | DISP:
+- **Clipboard** — comparte texto, archivos y portapapeles entre **Windows desktop** y **Android** en la misma Wi-Fi. Transporte HTTPS (axum + rustls) con certificados auto-firmados por dispositivo.
+- **Displays** (solo Windows) — maneja monitores: perfiles-escena, attach/detach de la TV con auto-revert, audio por perfil. Motor CCD traído de Monarch (`src-tauri/src/displays/`, `src-tauri/vendor/monarch`); su doctrina ("PROHIBIDO simplificar") y sus ADRs viven en `docs/DECISIONS.md`.
 
-**Comandos clave** (desde la raíz `millennium-clipboard/`):
+Stack: **Tauri 2** — backend Rust (`src-tauri/src/`), frontend JS/CSS vanilla sin framework ni bundler (`src/`). El dueño la usa a diario en desktop; la de Android nunca funcionó bien. No es programador fuerte de Rust/sistemas. El clipboard solo (sin Displays) es otro repo: `guidocameraeq/MillenniumClipboard`.
+
+**El `.exe` sale del CI de GitHub** (`.github/workflows/`): en la PC de Guido no hay Rust y el build local estaba roto por `dlltool`. Los nombres internos viejos (`millennium-clipboard.exe`, el identifier, el `name` de `package.json`) **no se cambian**: los usa el updater.
+
+**Comandos clave** (desde la raíz del repo):
 - `npm run tauri dev` — desktop con hot-reload del frontend.
 - `npm run tauri build` — build release. `bundle.active=false` → **NO** genera instalador; el artefacto es `src-tauri\target\release\millennium-clipboard.exe`.
 - `cd src-tauri; cargo check` — chequeo rápido del backend. **Primer paso ante cualquier "no compila / no funciona".**
@@ -60,7 +66,11 @@ Los rituales viven en `.claude/skills/`: **`/inicio` · `/cierre` · `/smoke`**.
 | `docs/SESSION_HANDOFF.md` | **Save game** — foto única de dónde quedamos | `/cierre` lo sobreescribe entero; el hook lo inyecta al inicio |
 | `docs/TODO.md` | ÚNICA fuente de pendientes | `/cierre`: completadas afuera, nuevas adentro |
 | `docs/CHANGELOG.md` | Historia de cambios | `/cierre`: entrada por sesión |
-| `docs/remediation/` | **Spec ejecutable del fix** (audit 2026-07-06) | Se ejecuta por fases; implementada → línea 1 + `docs/archive/` |
+| `docs/NORTE.md` · `docs/MAPA.md` | Qué es la app y cómo se conecta, en una pantalla cada uno | Al cambiar algo de fondo |
+| `docs/DECISIONS.md` | ADRs (por qué se hizo así) — sobre todo Displays | Al tomar una decisión cara de revertir |
+| `docs/modulos/<x>/` | Ficha + SPEC de cada módulo del kit | El Arquitecto lo arma; `/cierre` actualiza la ficha |
+| `docs/remediation/` | **Spec ejecutable del fix** (audit 2026-07-06). Windows ✅ archivado; queda Android | Se ejecuta por fases; implementada → línea 1 + `docs/archive/` |
+| `docs/archive/` | Specs y fases terminadas (solo lectura) | Se mueve ahí al completar; rutas viejas → `docs/README.md` |
 
 **Reglas del sistema**: una sola narrativa por sesión (HANDOFF + CHANGELOG y nada más). Un número vive en UN archivo. Lo derivable del código o de git NO se escribe en un doc. SPEC/fase implementada → estado en línea 1 y a `docs/archive/`.
 

@@ -1,6 +1,6 @@
 # SPEC: Ordenar los papeles y la raíz — Millennium
 Poner los docs y la raíz del repo al día con lo que la app es hoy (el combo Clipboard + Displays), sin tocar código.
-- Estado: READY
+- Estado: COMPLETO 2026-11-10
 - Fecha: 2026-11-10
 - Sello del Arquitecto: `arquitecto: 2026-11-10 · kit 3.0.0-rc.6 · chequeos: tamaño ✅ · entorno ✅ · tope ✅ · hash 4905e03c0799`
 

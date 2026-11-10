@@ -1,8 +1,14 @@
-# CHANGELOG — Millennium Clipboard
+# CHANGELOG — Millennium
 
 > Historia permanente. `/cierre` agrega una entrada AL TOPE en cada sesión. Orden descendente estricto, sin excepciones. Nada de versiones duplicadas en otros docs.
 
 kit 3.0.0-rc.6: adopción — piezas settings, hook-arranque, hook-escritura, hook-git-seguro, hook-sensible, cambios-metodo, hooks-lib, scripts, inicio, cierre, githooks, docs, estado, director-obrero — D1: A, los del kit reemplazan los propios
+
+## 2026-11-10 — Orden de papeles y raíz (módulo `orden-papeles`, sin código)
+- `CLAUDE.md` al día con el combo Clipboard + Displays (reglas con el mismo texto); NORTE y MAPA completos; TODO reordenado por prioridad (27 pendientes antes y después: 1 fusionado, 1 nuevo).
+- Archivados: `SPEC-displays.md` (COMPLETO; 3 pruebas físicas al TODO) y `remediation/windows/SPEC.md`. `_archive/mockup/` → `docs/archive/mockup/`. Tabla de mudanza en `docs/README.md`.
+- `vars.comando-test` de la ficha = `node .claude/scripts/estructura.cjs` (esta PC no tiene Rust); se cambia al planear el orden del código.
+- Verificado: los 7 criterios del spec (diff solo en `CLAUDE.md`/`docs/`/`_archive/`, sin `[completar`, sin "Millennium Clipboard", rutas movidas en la tabla, 27=27 pendientes, `estructura.cjs` en 0, rutas citadas existen).
 
 ## 2026-07-29 — Partición en 2 repos + debut **Millennium v1.5.1** + cosmética **v1.5.2**
 

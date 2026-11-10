@@ -1,3 +1,5 @@
+> **ESTADO: COMPLETO** — las 4 fases (0-3) implementadas, verificadas y archivadas en `docs/archive/phase-0..3-*.md`. Archivado 2026-11-10.
+
 # Spec de remediación — Windows (desktop)
 
 > Requiere haber leído `../00-SHARED-CONTEXT.md`. Ejecutar las fases **en orden**; cada una es shippable por sí sola.

@@ -1,8 +1,8 @@
-# SESSION_HANDOFF — Millennium Clipboard
+# SESSION_HANDOFF — Millennium
 
 > Save game del proyecto. `/cierre` lo SOBREESCRIBE ENTERO en cada sesión — acá nunca se apila historia (eso vive en CHANGELOG). El hook SessionStart lo inyecta en cada chat nuevo.
 
-**Cierre**: 2026-07-29 · **Repo**: renombrado a `guidocameraeq/Millennium` (era `Millennium-Clipboard`; la carpeta local sigue con el nombre viejo) · **Branch**: `main` · **Working tree**: limpio tras este cierre · **Último release**: `v1.5.2` (final) · **Último commit**: el de este cierre.
+**Cierre**: 2026-07-29 · **Repo**: renombrado a `guidocameraeq/Millennium` (era `Millennium-Clipboard`; la carpeta local ya se llama `Millennium`) · **Branch**: `main` · **Working tree**: limpio tras este cierre · **Último release**: `v1.5.2` (final) · **Último commit**: el de este cierre.
 
 ## En una línea
 
@@ -45,7 +45,7 @@
 - Ninguno. Todo verificado por CI + API. La única E2E pendiente es que Guido instale v1.5.2 (acción suya).
 
 ## Contexto que no está en otros docs
-- **El repo local es el mismo de siempre**: era `Millennium-Clipboard`, ahora el `origin` es `Millennium.git`. La CARPETA local sigue llamándose `Millennium-Clipboard/` (cosmético, no se tocó). Se hizo `git fetch --unshallow` (era un clon shallow que impedía pushear la historia completa a MillenniumClipboard).
+- **El repo local es el mismo de siempre**: era `Millennium-Clipboard`, ahora el `origin` es `Millennium.git`. La CARPETA local ya se llama `Millennium` (`C:\Users\guido\Desktop\(1) Claude\Millennium`). Se hizo `git fetch --unshallow` (era un clon shallow que impedía pushear la historia completa a MillenniumClipboard).
 - **Crear repos / setear metadata en GitHub sin `gh`**: se usó la credencial guardada de git (`git credential fill` → token → API con `Authorization: Bearer`), **sin exponer el token**. Sirve para `POST /user/repos`, `PATCH` del repo (description/homepage/**default_branch**), `PUT` topics, `POST` pages.
 - **Gotcha del CI en repo nuevo**: un tag pusheado juntito con `main` a un repo recién creado NO dispara el workflow (Actions aún no lo registró) → la cura es **re-pushear el tag**. Pasó con MillenniumClipboard.
 - **GitHub pone el default branch al PRIMER branch que llega**: como el push de `main` falló al principio (shallow) y `gh-pages` entró primero, MillenniumClipboard quedó con default `gh-pages` (el repo parecía VACÍO). Se corrigió por API a `main`.
