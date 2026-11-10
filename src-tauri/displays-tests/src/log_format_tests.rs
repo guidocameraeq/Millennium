@@ -239,6 +239,13 @@ fn un_texto_secreto_no_llega_a_ninguna_llamada_al_log() {
             }
         }
     }
+    // El aviso de reintento del upload cita la URL con el token: tiene que pasar por el filtro.
+    let reintento: Vec<String> = argumentos_de_llamadas_al_log(include_str!("../../src/http_client.rs"))
+        .into_iter()
+        .filter(|a| a.contains("[upload] attempt"))
+        .collect();
+    assert_eq!(reintento.len(), 1, "no encuentro el aviso de reintento del upload");
+    assert!(reintento[0].contains("redact_query"), "el aviso de reintento escribe la URL sin taparla");
     // Si el buscador dejara de ver las llamadas, el test pasaría sin mirar nada.
     assert!(llamadas >= 40, "el buscador vio solo {llamadas} llamadas al log");
     assert!(filtran.is_empty(), "una llamada al log mete contenido del usuario:\n{}", filtran.join("\n"));
@@ -286,6 +293,11 @@ fn el_token_no_aparece_en_el_error_de_reqwest_que_cita_la_url() {
     assert!(!l.contains("SECRETO"), "la línea filtra el token: {l}");
     assert!(l.contains("192.168.0.20:53317/upload/s/f?token=***"));
     assert!(l.contains("connection reset"));
+    assert_eq!(
+        redact_query("POST https://10.0.0.1:1/u?token=SECRETO: error sending request"),
+        "POST https://10.0.0.1:1/u?token=***: error sending request"
+    );
+    assert_eq!(redact_query("url (https://h:1/u?token=SECRETO)"), "url (https://h:1/u?token=***)");
 }
 
 #[test]

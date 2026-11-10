@@ -320,7 +320,11 @@ async fn send_files(
                 target.port,
                 &format!("{e:#}"),
             ));
-            format!("upload {}: {e:#}", path.display())
+            format!(
+                "upload {}: {}",
+                path.display(),
+                log_format::redact_query(&format!("{e:#}"))
+            )
         })?;
     }
 

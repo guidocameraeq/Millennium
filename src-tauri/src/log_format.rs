@@ -108,6 +108,8 @@ pub fn redact_query(s: &str) -> String {
         let end = rest
             .find(|c: char| c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '<' | '>' | ']' | '#'))
             .unwrap_or(rest.len());
+        // The `: ` that glues the next cause to the URL stays out of the query.
+        let end = rest[..end].trim_end_matches(&[':', ',', ';', '.'][..]).len();
         let (query, tail) = rest.split_at(end);
         let pairs: Vec<String> = query
             .split('&')
