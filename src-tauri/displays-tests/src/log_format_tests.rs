@@ -93,10 +93,19 @@ const CON_CONTENIDO: &[&str] = &[
     "png_base64",
     "payload.png_base64",
     "b64",
+    "t",
+    "text_res",
+    "img",
+    "png_bytes",
+    "bytes",
 ];
 
+/// Los paquetes enteros (llevan el texto adentro y se pueden imprimir con `{:?}`):
+/// solo cuenta el nombre solo; `payload.sender_alias` está bien.
+const OBJETOS_ENTEROS: &[&str] = &["payload", "evt"];
+
 /// Lo que se le puede preguntar a un contenido sin mostrarlo: el tamaño.
-const SOLO_TAMANO: &[&str] = &["len", "chars", "is_empty"];
+const SOLO_TAMANO: &[&str] = &["len", "is_empty", "is_some"];
 
 /// Los argumentos (entre paréntesis) de cada llamada a `runtime_log::info/warn/err`.
 fn argumentos_de_llamadas_al_log(src: &str) -> Vec<String> {
@@ -135,11 +144,20 @@ fn argumentos_de_llamadas_al_log(src: &str) -> Vec<String> {
 }
 
 /// ¿Este camino con puntos (`payload.text.chars`) muestra un contenido?
-fn muestra_contenido(camino: &str) -> bool {
+fn muestra_contenido(camino: &str, resto: &str) -> bool {
+    if OBJETOS_ENTEROS.contains(&camino) {
+        return true;
+    }
     let partes: Vec<&str> = camino.split('.').collect();
     for n in 1..=partes.len() {
         if CON_CONTENIDO.contains(&partes[..n].join(".").as_str()) {
-            return !(n < partes.len() && SOLO_TAMANO.contains(&partes[n]));
+            if n + 1 == partes.len() {
+                // `chars` es tamaño solo en `chars().count()`: `chars().take(40)` muestra el principio.
+                let es_tamano = SOLO_TAMANO.contains(&partes[n])
+                    || (partes[n] == "chars" && resto.starts_with("().count()"));
+                return !es_tamano;
+            }
+            return true;
         }
     }
     false
@@ -170,7 +188,7 @@ fn contenidos_en_argumentos(args: &str) -> Vec<String> {
                     nombre.push(cs[j]);
                     j += 1;
                 }
-                if muestra_contenido(&nombre) {
+                if muestra_contenido(&nombre, "") {
                     hallados.push(format!("{{{}}}", nombre));
                 }
             }
@@ -187,7 +205,8 @@ fn contenidos_en_argumentos(args: &str) -> Vec<String> {
             }
             // `a::b::text` no es el contenido: solo cuenta el camino que empieza solo.
             let precedido_por_camino = i >= 2 && cs[i - 1] == ':' && cs[i - 2] == ':';
-            if !precedido_por_camino && muestra_contenido(&camino) {
+            let resto: String = cs[j..].iter().collect();
+            if !precedido_por_camino && muestra_contenido(&camino, &resto) {
                 hallados.push(camino);
             }
             i = j;
@@ -211,6 +230,11 @@ fn el_detector_marca_el_contenido_y_deja_pasar_el_tamano() {
     assert!(contenidos_en_argumentos("log_format::send_text_line(&n, &ip, 1, text.chars().count())").is_empty());
     assert!(contenidos_en_argumentos(r#"format!("[clipboard] text sync to {}:{} failed", ip, port)"#).is_empty());
     assert!(contenidos_en_argumentos(r#"format!("{} {}", payload.sender_alias, e)"#).is_empty());
+    // sí: un adelanto del texto, el paquete entero y los nombres del sync
+    assert!(!contenidos_en_argumentos(r#"format!("{}", text.chars().take(40).collect::<String>())"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("got {:?}", payload)"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("{} {}", t, ip)"#).is_empty());
+    assert!(!contenidos_en_argumentos(r#"format!("{:?}", text_res)"#).is_empty());
 }
 
 #[test]
@@ -248,6 +272,15 @@ fn un_texto_secreto_no_llega_a_ninguna_llamada_al_log() {
     assert!(reintento[0].contains("redact_query"), "el aviso de reintento escribe la URL sin taparla");
     // Si el buscador dejara de ver las llamadas, el test pasaría sin mirar nada.
     assert!(llamadas >= 40, "el buscador vio solo {llamadas} llamadas al log");
+    // Un piso por archivo: si uno deja de aportar (se movió código), el test lo avisa.
+    for (nombre, src, piso) in [
+        ("lib.rs", fuentes[0].1, 30),
+        ("http_server.rs", fuentes[1].1, 15),
+        ("http_client.rs", fuentes[2].1, 2),
+    ] {
+        let n = argumentos_de_llamadas_al_log(src).len();
+        assert!(n >= piso, "{nombre}: el buscador vio solo {n} llamadas al log (piso {piso})");
+    }
     assert!(filtran.is_empty(), "una llamada al log mete contenido del usuario:\n{}", filtran.join("\n"));
 }
 
