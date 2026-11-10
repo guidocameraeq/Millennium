@@ -1000,7 +1000,7 @@ fn spawn_clipboard_poller(
                                 http_client::post_clipboard(&ip, port, &text, &alias, &fp, &receiver_fp).await
                             {
                                 runtime_log::warn(format!(
-                                    "[clipboard] text sync to {}:{} failed: {}",
+                                    "[clipboard] text sync to {}:{} failed: {:#}",
                                     ip, port, e
                                 ));
                             }
@@ -1015,7 +1015,7 @@ fn spawn_clipboard_poller(
                             .await
                             {
                                 runtime_log::warn(format!(
-                                    "[clipboard] image sync to {}:{} failed: {}",
+                                    "[clipboard] image sync to {}:{} failed: {:#}",
                                     ip, port, e
                                 ));
                             }

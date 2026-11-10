@@ -390,6 +390,11 @@ async fn handle_prepare_upload(
             Ok(Ok(decision)) => decision,
             _ => {
                 approval_registry().lock().unwrap().remove(&req.session_id);
+                crate::runtime_log::warn(format!(
+                    "[http] /prepare-upload from {} ({}): nobody answered in time, transfer expired",
+                    crate::log_format::one_line(&req.sender_alias),
+                    sender_ip
+                ));
                 let _ = state.app.emit(
                     "incoming-files-timeout",
                     serde_json::json!({ "sessionId": req.session_id }),
@@ -400,6 +405,11 @@ async fn handle_prepare_upload(
     };
 
     if !approved {
+        crate::runtime_log::warn(format!(
+            "[http] /prepare-upload from {} ({}): transfer not accepted (rejected or expired)",
+            crate::log_format::one_line(&req.sender_alias),
+            sender_ip
+        ));
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({ "error": "rejected" })),
@@ -870,6 +880,10 @@ async fn handle_clipboard(
     // Mutual-consent check: we only accept clipboard pushes from peers
     // that we explicitly opted in to.
     if !state.clipboard.is_enabled(&payload.sender_fingerprint) {
+        crate::runtime_log::warn(format!(
+            "[clipboard] sync from {} refused: clipboard sync is not enabled for that peer on this PC",
+            crate::log_format::one_line(&payload.sender_alias)
+        ));
         return StatusCode::FORBIDDEN;
     }
 
@@ -943,6 +957,10 @@ async fn handle_clipboard_image(
 
     // Mutual-consent: same gate as text clipboard sync.
     if !state.clipboard.is_enabled(&payload.sender_fingerprint) {
+        crate::runtime_log::warn(format!(
+            "[clipboard] image sync from {} refused: clipboard sync is not enabled for that peer on this PC",
+            crate::log_format::one_line(&payload.sender_alias)
+        ));
         return StatusCode::FORBIDDEN;
     }
     let bytes = match B64.decode(payload.png_base64.as_bytes()) {

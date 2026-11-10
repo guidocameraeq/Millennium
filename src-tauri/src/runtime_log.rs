@@ -43,6 +43,9 @@ struct FileSink {
     file: File,
     dir: PathBuf,
     size: u64,
+    /// The reopen after a rotation failed: `file` points at the null
+    /// device until the next line manages to reopen the real one.
+    parked: bool,
 }
 
 struct RuntimeLog {
@@ -71,8 +74,8 @@ pub fn bind_app(app: AppHandle) {
 pub fn bind_file(data_dir: &Path) {
     let log_path: PathBuf = data_dir.join("runtime.log");
     if let Ok(meta) = std::fs::metadata(&log_path) {
-        if log_format::should_rotate(meta.len(), 0) {
-            rotate_files(data_dir);
+        if log_format::should_rotate(meta.len(), 0) && !rotate_files(data_dir) {
+            note_write_failure("could not rotate runtime.log (is another program holding it?)");
         }
     }
     match open_append(&log_path) {
@@ -82,6 +85,7 @@ pub fn bind_file(data_dir: &Path) {
                 file: f,
                 dir: data_dir.to_path_buf(),
                 size,
+                parked: false,
             };
             let header = format!(
                 "\n========== new run @ {} ==========",
@@ -100,31 +104,52 @@ fn open_append(path: &Path) -> std::io::Result<File> {
     OpenOptions::new().create(true).append(true).open(path)
 }
 
-/// Run the rotation plan of `log_format`. Failures are ignored: the worst
-/// case is a backup that keeps its old name, never a lost live file.
-fn rotate_files(dir: &Path) {
+/// Run the rotation plan of `log_format`. Returns false when the live file
+/// could not be moved to `.1` (another program holding it, a permission):
+/// the caller says so instead of letting the file grow unnoticed.
+fn rotate_files(dir: &Path) -> bool {
     let (deletes, renames) = log_format::rotation_plan();
     for name in deletes {
         let _ = std::fs::remove_file(dir.join(name));
     }
+    let mut live_moved = true;
     for (from, to) in renames {
-        let _ = std::fs::rename(dir.join(from), dir.join(to));
+        let moved = std::fs::rename(dir.join(&from), dir.join(to));
+        if from == "runtime.log" {
+            // A missing live file is not a failure.
+            live_moved = match moved {
+                Ok(()) => true,
+                Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+            };
+        }
     }
+    live_moved
 }
 
 /// Append one line, rotating first if it would pass the size limit.
 fn append_line(sink: &mut FileSink, line: &str) -> std::io::Result<()> {
     let bytes = line.len() as u64 + 1;
+    if sink.parked {
+        // The last reopen failed: try only that, never rotate again.
+        sink.file = open_append(&sink.dir.join("runtime.log"))?;
+        sink.size = sink.file.metadata().map(|m| m.len()).unwrap_or(0);
+        sink.parked = false;
+    }
     if log_format::should_rotate(sink.size, bytes) {
-        // Windows will not rename an open file: park a handle on the null
-        // device while the real one is closed.
+        // Close the real handle before renaming: park a handle on the null
+        // device meanwhile.
         let real = std::mem::replace(&mut sink.file, null_file()?);
         drop(real);
-        rotate_files(&sink.dir);
-        // Size first: if the reopen fails we must not rotate again on the
-        // next line and push the backups out for nothing.
+        let rotated = rotate_files(&sink.dir);
+        // Size first: we must not rotate again on the next line and push
+        // the backups out for nothing.
         sink.size = 0;
+        sink.parked = true;
         sink.file = open_append(&sink.dir.join("runtime.log"))?;
+        sink.parked = false;
+        if !rotated {
+            note_write_failure("could not rotate runtime.log (is another program holding it?)");
+        }
     }
     writeln!(sink.file, "{}", line)?;
     sink.size += bytes;
