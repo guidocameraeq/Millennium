@@ -38,6 +38,12 @@ use tokio_util::io::ReaderStream;
 
 const CHUNK: usize = 64 * 1024;
 const PROGRESS_EVERY: Duration = Duration::from_millis(120);
+/// Cap for the small requests (/info, /text, /clipboard): a pooled socket to a
+/// peer that vanished never "connects" again, so `connect_timeout` alone does
+/// not bound them (encargo 03, criterio 4).
+const SMALL_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// The clipboard image is a base64 PNG (MBs): more room than the text calls.
+const IMAGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // Cert pinning (Fase 3, Tarea 3.1)
@@ -74,6 +80,8 @@ impl ServerCertVerifier for PinnedFingerprintVerifier {
         match &self.expected {
             None => Ok(ServerCertVerified::assertion()), // TOFU
             Some(exp) if exp.eq_ignore_ascii_case(&got) => Ok(ServerCertVerified::assertion()),
+            // NOTE: `net_ifaces::classify_send_failure` matches "fingerprint
+            // mismatch" in this message to tell a pin failure from a dead socket.
             Some(exp) => Err(TlsError::General(format!(
                 "cert fingerprint mismatch: expected {}, got {}",
                 &exp[..16.min(exp.len())],
@@ -222,6 +230,7 @@ async fn fetch_info_inner(ip: &str, port: u16, expected_fp: Option<&str>) -> Res
     let url = format!("https://{}:{}/info", ip, port);
     let resp = client_for(expected_fp)
         .get(&url)
+        .timeout(SMALL_REQUEST_TIMEOUT)
         .send()
         .await
         .map_err(noting(expected_fp))
@@ -257,6 +266,7 @@ pub async fn post_text(
     let url = format!("https://{}:{}/text", ip, port);
     let resp = client_for(Some(expected_fp))
         .post(&url)
+        .timeout(SMALL_REQUEST_TIMEOUT)
         .json(&TextPayload { text, sender_alias, sender_fingerprint, sender_port })
         .send()
         .await
@@ -583,6 +593,7 @@ pub async fn post_clipboard(
     let url = format!("https://{}:{}/clipboard", ip, port);
     let resp = client_for(Some(receiver_fp))
         .post(&url)
+        .timeout(SMALL_REQUEST_TIMEOUT)
         .json(&ClipboardPayload { text, sender_alias, sender_fingerprint })
         .send()
         .await
@@ -617,6 +628,7 @@ pub async fn post_clipboard_image(
     let url = format!("https://{}:{}/clipboard/image", ip, port);
     let resp = client_for(Some(receiver_fp))
         .post(&url)
+        .timeout(IMAGE_REQUEST_TIMEOUT)
         .json(&ClipboardImagePayload {
             png_base64,
             sender_alias,
@@ -627,7 +639,7 @@ pub async fn post_clipboard_image(
         .map_err(noting(Some(receiver_fp)))
         .with_context(|| format!("POST {}", url))?;
     if resp.status() == reqwest::StatusCode::FORBIDDEN
-        ||resp.status() == reqwest::StatusCode::NOT_FOUND
+        || resp.status() == reqwest::StatusCode::NOT_FOUND
     {
         // Either the peer didn't enable sync, or it's an older client
         // without the image endpoint — silent skip in both cases.
