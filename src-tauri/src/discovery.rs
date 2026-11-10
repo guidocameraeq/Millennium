@@ -711,7 +711,8 @@ pub fn start(
 
     // (D) mDNS meter (puesta-a-punto, encargo 01). Once a minute, one log
     //     line with what the daemon sent and heard in that minute, only if
-    //     there was traffic. The arithmetic lives in `mdns_meter` (tested).
+    //     there was traffic. The arithmetic lives in `mdns_meter`
+    //     (tests: displays-tests/src/mdns_meter_tests.rs).
     {
         let daemon = daemon.clone();
         let mdns_adapters = mdns_adapters.clone();
