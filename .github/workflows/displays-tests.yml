@@ -31,6 +31,7 @@ on:
       - main
       - feat/displays
       - 'ci/**'
+      - 'modulo/**'
 
 permissions:
   contents: read
