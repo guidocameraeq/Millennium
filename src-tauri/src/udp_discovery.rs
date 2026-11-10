@@ -127,9 +127,12 @@ async fn run(
         UDP_DISCOVERY_PORT,
     );
     // Limited broadcast (255.255.255.255) reaches every host on the local
-    // segment regardless of the netmask and is never routed off-link. We no
-    // longer derive a /24 directed broadcast: that hard-coded guess was
-    // wrong on /16, /23, ... LANs. One global broadcast covers them all.
+    // segment regardless of the netmask and is never routed off-link, but
+    // Windows sends it out of ONE adapter only (the best metric, sometimes a
+    // virtual one). So each tick also sends the same bytes to the directed
+    // broadcast of every real adapter's subnet (`net_ifaces::hello_targets`).
+    // That one assumes /24 (no netmask available): on a wider LAN it is just
+    // extra, and this global broadcast, kept for old peers, still covers it.
     crate::runtime_log::info(format!(
         "[udp] broadcasting to 255.255.255.255:{} every {}s (local_ip={})",
         UDP_DISCOVERY_PORT, BROADCAST_INTERVAL_SECS, info.local_ip
@@ -142,6 +145,8 @@ async fn run(
     // "now", not a pile of accumulated ticks all at once.
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut send_count: u64 = 0;
+    let mut tick_count: u64 = 0;
+    let mut last_targets: Vec<Ipv4Addr> = Vec::new();
 
     loop {
         tokio::select! {
@@ -150,13 +155,21 @@ async fn run(
                 // each real adapter's subnet (re-read every tick, so a roam or
                 // a plugged cable is picked up). Best effort: failures here
                 // never count against the global broadcast below.
+                tick_count += 1;
                 let targets = tokio::task::spawn_blocking(directed_targets)
                     .await
                     .unwrap_or_default();
+                if targets != last_targets {
+                    crate::runtime_log::info(format!(
+                        "[udp] directed hello targets: {:?}",
+                        targets.iter().map(|t| t.to_string()).collect::<Vec<_>>()
+                    ));
+                    last_targets = targets.clone();
+                }
                 for t in targets {
                     let dest = SocketAddr::new(IpAddr::V4(t), UDP_DISCOVERY_PORT);
                     if let Err(e) = socket.send_to(&bytes, dest).await {
-                        if send_count % 12 == 0 {
+                        if tick_count % 12 == 1 {
                             crate::runtime_log::warn(format!("[udp] hello to {} failed: {}", t, e));
                         }
                     }
