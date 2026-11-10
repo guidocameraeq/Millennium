@@ -9,3 +9,4 @@ pub(crate) mod tray;
 pub(crate) mod crash_log;
 pub(crate) mod peers_cmds;
 pub(crate) mod clipboard_cmds;
+pub(crate) mod settings_cmds;

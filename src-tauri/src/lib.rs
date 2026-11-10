@@ -106,82 +106,6 @@ pub struct AppState {
 // Settings commands (Fase 7)
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-fn get_settings(state: tauri::State<AppState>) -> UserSettings {
-    let s = state.settings.snapshot();
-    UserSettings {
-        download_dir: s.download_dir.to_string_lossy().to_string(),
-        auto_accept_favorites: s.auto_accept_favorites,
-        notifications_enabled: s.notifications_enabled,
-        start_with_windows: s.start_with_windows,
-        close_to_tray: s.close_to_tray,
-    }
-}
-
-#[tauri::command]
-fn set_download_dir(state: tauri::State<AppState>, path: String) -> Result<(), String> {
-    state
-        .settings
-        .set_download_dir(PathBuf::from(path))
-        .map_err(|e| format!("{e:#}"))
-}
-
-#[tauri::command]
-fn set_auto_accept_favorites(
-    state: tauri::State<AppState>,
-    value: bool,
-) -> Result<(), String> {
-    state
-        .settings
-        .set_auto_accept_favorites(value)
-        .map_err(|e| format!("{e:#}"))
-}
-
-#[tauri::command]
-fn set_notifications_enabled(
-    state: tauri::State<AppState>,
-    value: bool,
-) -> Result<(), String> {
-    state
-        .settings
-        .set_notifications_enabled(value)
-        .map_err(|e| format!("{e:#}"))
-}
-
-#[tauri::command]
-async fn set_start_with_windows(
-    #[allow(unused_variables)] app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    value: bool,
-) -> Result<(), String> {
-    #[cfg(desktop)]
-    {
-        use tauri_plugin_autostart::ManagerExt;
-        let manager = app.autolaunch();
-        if value {
-            manager.enable().map_err(|e| format!("autostart enable: {e}"))?;
-        } else {
-            manager.disable().map_err(|e| format!("autostart disable: {e}"))?;
-        }
-    }
-    state
-        .settings
-        .set_start_with_windows(value)
-        .map_err(|e| format!("{e:#}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-fn set_close_to_tray(
-    state: tauri::State<AppState>,
-    value: bool,
-) -> Result<(), String> {
-    state
-        .settings
-        .set_close_to_tray(value)
-        .map_err(|e| format!("{e:#}"))
-}
-
 // ---------------------------------------------------------------------------
 // Manual peers (Fase 8) — register a peer by IP for networks where mDNS is
 // blocked (AP isolation, corporate VLANs).
@@ -786,9 +710,9 @@ pub fn run() {
             app::clipboard_cmds::reject_session,
             app::clipboard_cmds::cancel_session,
             app::peers_cmds::toggle_favorite,
-            get_settings,
-            set_download_dir,
-            set_auto_accept_favorites,
+            app::settings_cmds::get_settings,
+            app::settings_cmds::set_download_dir,
+            app::settings_cmds::set_auto_accept_favorites,
             app::peers_cmds::add_peer_by_ip,
             app::peers_cmds::remove_manual_peer,
             app::peers_cmds::rename_peer,
@@ -802,9 +726,9 @@ pub fn run() {
             app::runtime_log_cmds::record_frontend_log,
             app::peers_cmds::set_peer_icon,
             app::peers_cmds::forget_peer,
-            set_notifications_enabled,
-            set_start_with_windows,
-            set_close_to_tray,
+            app::settings_cmds::set_notifications_enabled,
+            app::settings_cmds::set_start_with_windows,
+            app::settings_cmds::set_close_to_tray,
             app::peers_cmds::generate_pair_qr,
             app::peers_cmds::pair_with_qr_payload,
             app::clipboard_cmds::prepare_file_for_send,
