@@ -4,10 +4,12 @@
 // el WebSocket que trae Node, y un window.__TAURI__ falso (mock-tauri.js).
 // (El msedge.exe de línea de comandos no devuelve --dump-dom en esta PC.)
 //
-//   node tools/ui-capturas/capturar.cjs [antes|despues]   guarda DOM + PNG de CLIP y DISP
-//   node tools/ui-capturas/capturar.cjs --comparar        captura "despues" y la compara con "antes"
+//   node tools/ui-capturas/capturar.cjs antes            guarda la referencia (se niega si ya existe; --pisar la reemplaza)
+//   node tools/ui-capturas/capturar.cjs despues          guarda la corrida de hoy
+//   node tools/ui-capturas/capturar.cjs --comparar       captura "despues" y la compara con "antes"
 //
-// Sin argumento guarda en "despues". La referencia ("antes") se commitea.
+// Por vista guarda el DOM, una PNG y la lista de comandos invoke/listen que la
+// app usó. UI_SRC=<carpeta> apunta a otra copia de src/ (p. ej. el código viejo).
 'use strict';
 
 const fs = require('fs');
@@ -17,12 +19,22 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const AQUI = __dirname;
-const SRC = path.resolve(AQUI, '..', '..', 'src');
+const SRC = path.resolve(process.env.UI_SRC || path.join(AQUI, '..', '..', 'src'));
 const CAPTURAS = path.join(AQUI, 'capturas');
 const EDGE = process.env.EDGE_EXE || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-const VISTAS = ['clip', 'disp'];
-// Los relojes de la app (diagnóstico a 1,5 s, status a 2,2 s) terminan antes.
+// Cada vista: una lista de selectores a los que se les hace clic, en orden.
+const VISTAS = {
+  clip: [],
+  'clip-all': ['.filter-btn[data-filter="all"]'],
+  disp: ['[data-action="section-displays"]'],
+  'disp-perfiles': ['[data-action="section-displays"]', '.displays-tab[data-tab="profiles"]'],
+  'disp-ajustes': ['[data-action="section-displays"]', '.displays-tab[data-tab="settings"]'],
+  'disp-lienzo': ['[data-action="section-displays"]', '.displays-tab[data-tab="canvas"]'],
+};
+// Los relojes de la app (diagnóstico a 1,5 s, status a 2,2 s) terminan antes;
+// se cuenta desde que la página terminó de cargar.
 const ESPERA_MS = 3500;
+const PLAZO_LLAMADA_MS = 30000;
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -31,7 +43,8 @@ function aUrl(p) {
 }
 
 // Copia de index.html en la carpeta temporal: mock antes de los scripts de la
-// app, errores al DOM, y (para DISP) un clic en la pestaña Displays.
+// app, errores al DOM (incluidos los de carga de un archivo) y los clics de la
+// vista una vez cargada la página.
 function armarHtml(tmp, vista) {
   let html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
   const base = '<base href="' + aUrl(SRC) + '/">';
@@ -41,14 +54,17 @@ function armarHtml(tmp, vista) {
     'if(!d){d=document.createElement("pre");d.id="__errores__";(document.body||document.documentElement).appendChild(d);}',
     'd.textContent=window.__ERRORES__.join("\\n");}',
     'window.onerror=function(m,f,l){__err("JS ERROR: "+m+" @"+String(f).split("/").pop()+":"+l);};',
+    'window.addEventListener("error",function(e){var t=e.target;if(t&&t!==window&&(t.src||t.href))__err("NO CARGO: "+(t.src||t.href));},true);',
     'window.addEventListener("unhandledrejection",function(e){__err("JS REJECT: "+(e.reason&&e.reason.message||e.reason));});</script>',
   ].join('\n');
   const mock = '<script id="__banco_mock__">' + fs.readFileSync(path.join(AQUI, 'mock-tauri.js'), 'utf8') + '</script>';
   html = html.replace(/<head>/i, () => '<head>' + base + errores + mock);
-  if (vista === 'disp') {
-    const clic = '<script id="__banco_clic__">window.addEventListener("load",function(){setTimeout(function(){' +
-      'var b=document.querySelector(\'[data-action="section-displays"]\');if(b)b.click();},300);});</script>';
-    html = html.replace(/<\/body>/i, () => clic + '</body>');
+  const clics = VISTAS[vista];
+  if (clics.length) {
+    const js = 'window.addEventListener("load",function(){' + clics.map((sel, i) =>
+      'setTimeout(function(){var b=document.querySelector(' + JSON.stringify(sel) + ');if(b)b.click();else __err("NO HAY: "+' +
+      JSON.stringify(sel) + ');},' + (300 + i * 300) + ');').join('') + '});';
+    html = html.replace(/<\/body>/i, () => '<script id="__banco_clic__">' + js + '</script></body>');
   }
   const out = path.join(tmp, vista + '.html');
   fs.writeFileSync(out, html);
@@ -97,6 +113,7 @@ function cdp(url) {
   const ws = new WebSocket(url);
   let id = 0;
   const espera = new Map();
+  const rechazarTodo = (e) => { for (const { ko } of espera.values()) ko(e); espera.clear(); };
   ws.onmessage = (m) => {
     const d = JSON.parse(m.data);
     if (d.id && espera.has(d.id)) {
@@ -105,13 +122,20 @@ function cdp(url) {
       if (d.error) ko(new Error(d.error.message)); else ok(d.result);
     }
   };
+  ws.onclose = () => rechazarTodo(new Error('Edge cerró la conexión'));
   const abierto = new Promise((ok, ko) => { ws.onopen = ok; ws.onerror = () => ko(new Error('WebSocket CDP')); });
   const llamar = (method, params = {}) => new Promise((ok, ko) => {
     const n = ++id;
-    espera.set(n, { ok, ko });
+    const t = setTimeout(() => { espera.delete(n); ko(new Error('Edge no contestó ' + method)); }, PLAZO_LLAMADA_MS);
+    espera.set(n, { ok: (r) => { clearTimeout(t); ok(r); }, ko: (e) => { clearTimeout(t); ko(e); } });
     ws.send(JSON.stringify({ id: n, method, params }));
   });
   return { abierto, llamar, cerrar: () => ws.close() };
+}
+
+async function evaluar(c, expression) {
+  const r = await c.llamar('Runtime.evaluate', { expression, returnByValue: true });
+  return r.result.value;
 }
 
 async function capturar(destino) {
@@ -133,15 +157,17 @@ async function capturar(destino) {
     await c.llamar('Page.enable');
     await c.llamar('Emulation.setDeviceMetricsOverride',
       { width: 1100, height: 760, deviceScaleFactor: 1, mobile: false });
-    for (const vista of VISTAS) {
+    for (const vista of Object.keys(VISTAS)) {
       await c.llamar('Page.navigate', { url: aUrl(armarHtml(tmp, vista)) });
+      for (let i = 0; i < 100 && (await evaluar(c, 'document.readyState')) !== 'complete'; i++) await dormir(100);
       await dormir(ESPERA_MS);
-      const r = await c.llamar('Runtime.evaluate',
-        { expression: 'document.documentElement.outerHTML', returnByValue: true });
-      fs.writeFileSync(path.join(dir, vista + '.dom.html'), normalizar(r.result.value));
+      const dom = await evaluar(c, 'document.documentElement.outerHTML');
+      fs.writeFileSync(path.join(dir, vista + '.dom.html'), normalizar(dom));
+      const llamadas = await evaluar(c, 'Array.from(new Set(window.__LLAMADAS__||[])).sort().join("\\n")');
+      fs.writeFileSync(path.join(dir, vista + '.llamadas.txt'), llamadas + '\n');
       const sh = await c.llamar('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(path.join(dir, vista + '.png'), Buffer.from(sh.data, 'base64'));
-      console.log('ok ' + destino + '/' + vista + ': dom + png');
+      console.log('ok ' + destino + '/' + vista + ': dom + llamadas + png');
     }
     try { await c.llamar('Browser.close'); } catch (_) { /* ya cerró */ }
     return true;
@@ -158,37 +184,39 @@ async function capturar(destino) {
 
 function comparar() {
   let ok = true;
-  for (const vista of VISTAS) {
-    const a = path.join(CAPTURAS, 'antes', vista + '.dom.html');
-    const d = path.join(CAPTURAS, 'despues', vista + '.dom.html');
-    if (!fs.existsSync(a) || !fs.existsSync(d)) {
-      console.error('falta ' + (!fs.existsSync(a) ? a : d));
+  for (const vista of Object.keys(VISTAS)) {
+    for (const [ext, norm] of [['dom.html', normalizar], ['llamadas.txt', (s) => s.replace(/\r\n/g, '\n')]]) {
+      const a = path.join(CAPTURAS, 'antes', vista + '.' + ext);
+      const d = path.join(CAPTURAS, 'despues', vista + '.' + ext);
+      if (!fs.existsSync(a) || !fs.existsSync(d)) {
+        console.error('falta ' + (!fs.existsSync(a) ? a : d));
+        ok = false;
+        continue;
+      }
+      // normalizar también al leer: git puede haber pasado "antes" a CRLF al
+      // clonar en Windows, y la referencia se guardó con reglas más cortas.
+      const sa = norm(fs.readFileSync(a, 'utf8'));
+      const sd = norm(fs.readFileSync(d, 'utf8'));
+      const err = ext === 'dom.html' && /id="__errores__"[^>]*>([^<]+)/.exec(sd);
+      if (err) {
+        console.error('[' + vista + '] hubo un error JS: ' + err[1].split('\n')[0]);
+        ok = false;
+      }
+      if (sa === sd) {
+        console.log('[' + vista + '] ' + ext + ' igual');
+        continue;
+      }
       ok = false;
-      continue;
-    }
-    // normalizar también al leer: git puede haber pasado "antes" a CRLF al
-    // clonar en Windows, y la referencia se guardó con reglas más cortas.
-    const sa = normalizar(fs.readFileSync(a, 'utf8'));
-    const sd = normalizar(fs.readFileSync(d, 'utf8'));
-    const err = /id="__errores__"[^>]*>([^<]+)/.exec(sd);
-    if (err) {
-      console.error('[' + vista + '] hubo un error JS: ' + err[1].split('\n')[0]);
-      ok = false;
-    }
-    if (sa === sd) {
-      console.log('[' + vista + '] DOM igual');
-      continue;
-    }
-    ok = false;
-    const la = sa.split('\n');
-    const ld = sd.split('\n');
-    let n = 0;
-    console.error('[' + vista + '] DOM distinto:');
-    for (let i = 0; i < Math.max(la.length, ld.length) && n < 8; i++) {
-      if (la[i] !== ld[i]) {
-        console.error('  línea ' + (i + 1) + '\n    antes:   ' + (la[i] || '').slice(0, 160) +
-          '\n    despues: ' + (ld[i] || '').slice(0, 160));
-        n++;
+      const la = sa.split('\n');
+      const ld = sd.split('\n');
+      let n = 0;
+      console.error('[' + vista + '] ' + ext + ' distinto:');
+      for (let i = 0; i < Math.max(la.length, ld.length) && n < 8; i++) {
+        if (la[i] !== ld[i]) {
+          console.error('  línea ' + (i + 1) + '\n    antes:   ' + (la[i] || '').slice(0, 160) +
+            '\n    despues: ' + (ld[i] || '').slice(0, 160));
+          n++;
+        }
       }
     }
   }
@@ -196,10 +224,21 @@ function comparar() {
 }
 
 (async () => {
-  const arg = process.argv[2];
+  const args = process.argv.slice(2);
+  const arg = args[0];
   if (arg === '--comparar') {
     if (!(await capturar('despues'))) process.exit(1);
     process.exit(comparar() ? 0 : 1);
   }
-  process.exit((await capturar(arg === 'antes' ? 'antes' : 'despues')) ? 0 : 1);
+  if (arg === 'despues') process.exit((await capturar('despues')) ? 0 : 1);
+  if (arg === 'antes') {
+    const existe = fs.existsSync(path.join(CAPTURAS, 'antes', 'clip.dom.html'));
+    if (existe && args[1] !== '--pisar') {
+      console.error('capturas/antes ya existe y es la referencia: no se pisa sin --pisar.');
+      process.exit(2);
+    }
+    process.exit((await capturar('antes')) ? 0 : 1);
+  }
+  console.error('uso: capturar.cjs antes [--pisar] | despues | --comparar');
+  process.exit(2);
 })();

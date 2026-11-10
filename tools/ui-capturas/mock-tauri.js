@@ -44,14 +44,24 @@
     displays_get_settings: () => ({ revertTimeoutSecs: 15, startupProfileName: null, globalShortcutsEnabled: true }),
   };
 
+  // El placeholder que se tipea solo usa Math.random: fijo, para que dos
+  // corridas den el mismo DOM.
+  Math.random = () => 0.5;
+
+  // Todo comando invocado y evento escuchado queda anotado: capturar.cjs lo
+  // guarda y lo compara, así un invoke/listen que se pierde al mover código
+  // se nota aunque el DOM salga igual.
+  window.__LLAMADAS__ = [];
+
   async function invoke(cmd /*, args */) {
+    window.__LLAMADAS__.push('invoke ' + cmd);
     const h = handlers[cmd];
     return h ? h() : null;
   }
 
   window.__TAURI__ = {
     core: { invoke },
-    event: { listen: async () => () => {} },
+    event: { listen: async (nombre) => { window.__LLAMADAS__.push('listen ' + nombre); return () => {}; } },
     dialog: { open: async () => null },
     notification: {
       isPermissionGranted: async () => true,
