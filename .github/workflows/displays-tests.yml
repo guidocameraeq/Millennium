@@ -11,7 +11,7 @@ name: Displays logic tests
 #    lado: el único job era windows-latest y nunca invocaba `cargo test`.
 #    Eran decoración.
 #  - `src-tauri/displays-tests/` es un crate chico que incluye por `#[path]` los
-#    archivos REALES que son windows-free (watchdog, store, ids). Sin `windows`
+#    archivos REALES que son windows-free (watchdog, store, ids, view). Sin `windows`
 #    ni `tauri`, linkea sin drama.
 #
 # Qué protege, concretamente: que si nadie confirma un cambio de monitores, el
@@ -31,6 +31,7 @@ on:
       - main
       - feat/displays
       - 'ci/**'
+      - 'modulo/**'
 
 permissions:
   contents: read
@@ -73,8 +74,8 @@ jobs:
           corridos=$(echo "$salida" | grep -oE '^running [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)
           : "${corridos:=0}"
           echo "Tests corridos: $corridos"
-          if [ "$corridos" -lt 10 ]; then
-            echo "::error::Corrieron $corridos tests (se esperaban 10 o más). Un gate que no ejecuta nada es decoración."
+          if [ "$corridos" -lt 99 ]; then
+            echo "::error::Corrieron $corridos tests (se esperaban 99 o más). Un gate que no ejecuta nada es decoración."
             exit 1
           fi
 

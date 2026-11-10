@@ -1,0 +1,56 @@
+name: App check (cargo check + clippy)
+
+# Gate de compilación de la app para ramas de módulo: en la PC de Guido no hay Rust,
+# así que "compila" solo se afirma desde acá. Más barato que `build.yml` (no linkea
+# en release ni corre LTO): solo `cargo check` sobre `src-tauri/`.
+# Clippy corre en modo AVISO (continue-on-error): no rompe el gate todavía; se
+# endurece más adelante (puesta-a-punto, SPEC.md:97).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'modulo/**'
+
+permissions:
+  contents: read
+
+jobs:
+  app-check:
+    name: cargo check (app, windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust (MSVC target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install JS dependencies (Tauri CLI)
+        run: npm ci
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+
+      - name: cargo clippy (aviso)
+        working-directory: src-tauri
+        continue-on-error: true
+        run: cargo clippy --all-targets
