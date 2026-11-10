@@ -2,8 +2,6 @@
 //!
 //! Movido tal cual desde `lib.rs` (encargo 04 de puesta-a-punto): solo cambian los `use` y la visibilidad.
 
-use tauri::Manager;
-
 pub(crate) fn install_panic_hook() {
     // Resolve %APPDATA%/com.guidocameraeq.millennium/ manually so this
     // hook is installable BEFORE Tauri exists and gives us app.path().
