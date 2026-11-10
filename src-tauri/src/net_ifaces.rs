@@ -126,6 +126,133 @@ pub fn diff_ips(old: &[IpAddr], new: &[IpAddr]) -> IpDiff {
     }
 }
 
+/// Why a send to a peer failed, as far as the cached HTTPS client is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendFailure {
+    /// Could not open the TCP/TLS connection (peer off, stale IP, no route).
+    Connect,
+    /// Connected, but the request timed out.
+    Timeout,
+    /// The cert did not hash to the pinned fingerprint. A new client would
+    /// pin the same thing and fail the same way.
+    Pin,
+    /// Anything else (body, decode, ...).
+    Other,
+}
+
+/// Classify a `reqwest` send error from its flags and the text of its whole
+/// source chain. Pure so it can be tested without a network: reqwest reports a
+/// failed handshake (including our pin) as a connect error, so the pin is told
+/// apart by the verifier's message.
+pub fn classify_send_failure(is_connect: bool, is_timeout: bool, chain: &str) -> SendFailure {
+    if chain.contains("fingerprint mismatch") {
+        SendFailure::Pin
+    } else if is_connect {
+        SendFailure::Connect
+    } else if is_timeout {
+        SendFailure::Timeout
+    } else {
+        SendFailure::Other
+    }
+}
+
+/// Should the cached client of that fingerprint be thrown away? Yes when the
+/// connection itself is dead (the pool may hold sockets to an address that no
+/// longer answers); no for a pin failure or anything unrelated to the socket.
+pub fn drops_client(kind: SendFailure) -> bool {
+    matches!(kind, SendFailure::Connect | SendFailure::Timeout)
+}
+
+/// Prefix length assumed for every adapter: the adapter list we have
+/// (`local_ip_address`) carries no netmask. /24 is what home routers hand out;
+/// on a wider LAN the directed hello just lands on a plain host address and the
+/// `255.255.255.255` hello (always sent too) still does the job.
+pub const ASSUMED_PREFIX: u8 = 24;
+
+/// Directed-broadcast address of the subnet `ip/prefix`. `None` when the
+/// subnet has none (/31, /32) or the prefix is nonsense (/0, > 32).
+pub fn directed_broadcast(ip: Ipv4Addr, prefix: u8) -> Option<Ipv4Addr> {
+    if prefix == 0 || prefix > 30 {
+        return None;
+    }
+    let host_mask = u32::MAX >> prefix;
+    Some(Ipv4Addr::from(u32::from(ip) | host_mask))
+}
+
+/// Where the UDP hello goes besides `255.255.255.255`: the directed broadcast
+/// of each real adapter's subnet, once per subnet, in adapter order. Windows
+/// sends the limited broadcast out of ONE adapter only; a directed one is
+/// routed out of the adapter that owns that subnet.
+pub fn hello_targets(used: &[(String, Ipv4Addr)], prefix: u8) -> Vec<Ipv4Addr> {
+    let mut out: Vec<Ipv4Addr> = Vec::new();
+    for (_, ip) in used {
+        if let Some(b) = directed_broadcast(*ip, prefix) {
+            if !out.contains(&b) {
+                out.push(b);
+            }
+        }
+    }
+    out
+}
+
+/// Are `a` and `b` in the same `/prefix` subnet? (`prefix` 0 or > 32: no.)
+pub fn same_subnet(a: Ipv4Addr, b: Ipv4Addr, prefix: u8) -> bool {
+    if prefix == 0 || prefix > 32 {
+        return false;
+    }
+    let mask = u32::MAX << (32 - prefix as u32);
+    (u32::from(a) & mask) == (u32::from(b) & mask)
+}
+
+/// Which of the addresses a peer announced over mDNS to use. A peer with WSL
+/// or Hyper-V announces its virtual NIC too, and mDNS gives no order, so
+/// prefer the IPv4 that shares a subnet with one of OUR real adapters
+/// (`local`, from `classify_ifaces`); if none does, the first one, as before.
+pub fn pick_peer_addr(candidates: &[IpAddr], local: &[Ipv4Addr], prefix: u8) -> Option<IpAddr> {
+    candidates
+        .iter()
+        .find(|c| match c {
+            IpAddr::V4(c4) => local.iter().any(|l| same_subnet(*l, *c4, prefix)),
+            IpAddr::V6(_) => false,
+        })
+        .or_else(|| candidates.first())
+        .copied()
+}
+
+/// What the presence reaper does with a peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerFate {
+    /// Heard from within the TTL.
+    Online,
+    /// Silent past the TTL but a favorite: stays in the map (and as a send
+    /// target on its last IP:port), shown as offline.
+    Offline,
+    /// Silent past the TTL and not a favorite: removed from the map.
+    Gone,
+}
+
+/// Decide a peer's fate from the seconds since we last heard from it.
+pub fn peer_fate(elapsed_secs: u64, ttl_secs: u64, is_favorite: bool) -> PeerFate {
+    if elapsed_secs < ttl_secs {
+        PeerFate::Online
+    } else if is_favorite {
+        PeerFate::Offline
+    } else {
+        PeerFate::Gone
+    }
+}
+
+/// The `status` the frontend gets for a peer in the map. Only `Online` is
+/// "online": a favorite just un-starred while silent is `Gone` until the next
+/// reaper pass, and must not flash as online meanwhile.
+pub fn fate_status(fate: PeerFate) -> &'static str {
+    if fate == PeerFate::Online {
+        "online"
+    } else {
+        "offline"
+    }
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

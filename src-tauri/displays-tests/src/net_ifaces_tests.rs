@@ -216,3 +216,145 @@ fn la_misma_ip_dos_veces_cuenta_una() {
     let u = used(&[("Wi-Fi", [192, 168, 1, 42]), ("Wi-Fi", [192, 168, 1, 42])]);
     assert_eq!(mdns_ip_list(&u, ""), vec![v4(192, 168, 1, 42)]);
 }
+
+// --- classify_send_failure / drops_client: qué error tira el cliente cacheado ---
+
+use crate::net_ifaces::{classify_send_failure, drops_client, SendFailure};
+
+#[test]
+fn ip_que_no_responde_es_conexion_y_tira_el_cliente() {
+    let k = classify_send_failure(true, true, "error trying to connect: tcp connect error: timed out");
+    assert_eq!(k, SendFailure::Connect);
+    assert!(drops_client(k));
+}
+
+#[test]
+fn conexion_rechazada_tira_el_cliente() {
+    let k = classify_send_failure(true, false, "tcp connect error: Connection refused (os error 10061)");
+    assert_eq!(k, SendFailure::Connect);
+    assert!(drops_client(k));
+}
+
+#[test]
+fn timeout_sin_conectar_tira_el_cliente() {
+    let k = classify_send_failure(false, true, "operation timed out");
+    assert_eq!(k, SendFailure::Timeout);
+    assert!(drops_client(k));
+}
+
+#[test]
+fn pin_que_no_coincide_no_tira_el_cliente() {
+    // reqwest lo marca como error de conexión (falló el handshake), pero un
+    // cliente nuevo con la misma huella fallaría igual: no se descarta.
+    let k = classify_send_failure(
+        true,
+        false,
+        "error trying to connect: invalid peer certificate: cert fingerprint mismatch: expected ab12, got cd34",
+    );
+    assert_eq!(k, SendFailure::Pin);
+    assert!(!drops_client(k));
+}
+
+#[test]
+fn otro_error_no_tira_el_cliente() {
+    let k = classify_send_failure(false, false, "error decoding response body");
+    assert_eq!(k, SendFailure::Other);
+    assert!(!drops_client(k));
+}
+
+// --- directed_broadcast / hello_targets: el hello por cada placa real ---
+
+use crate::net_ifaces::{directed_broadcast, hello_targets, ASSUMED_PREFIX};
+
+#[test]
+fn broadcast_de_una_24() {
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 24),
+        Some(Ipv4Addr::new(192, 168, 1, 255))
+    );
+}
+
+#[test]
+fn broadcast_de_otras_mascaras() {
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(192, 168, 5, 42), 23),
+        Some(Ipv4Addr::new(192, 168, 5, 255))
+    );
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(192, 168, 4, 42), 23),
+        Some(Ipv4Addr::new(192, 168, 5, 255))
+    );
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(10, 3, 4, 5), 8),
+        Some(Ipv4Addr::new(10, 255, 255, 255))
+    );
+    assert_eq!(
+        directed_broadcast(Ipv4Addr::new(172, 16, 9, 9), 16),
+        Some(Ipv4Addr::new(172, 16, 255, 255))
+    );
+}
+
+#[test]
+fn sin_broadcast_en_punto_a_punto_o_mascara_rara() {
+    // /31 y /32 no tienen broadcast; /0 sería mandar al mundo entero.
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 32), None);
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 31), None);
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 0), None);
+    assert_eq!(directed_broadcast(Ipv4Addr::new(192, 168, 1, 42), 33), None);
+}
+
+#[test]
+fn hello_sale_por_la_subred_de_cada_placa_real() {
+    let u = used(&[("Ethernet", [192, 168, 0, 10]), ("Wi-Fi", [192, 168, 1, 42])]);
+    assert_eq!(
+        hello_targets(&u, ASSUMED_PREFIX),
+        vec![Ipv4Addr::new(192, 168, 0, 255), Ipv4Addr::new(192, 168, 1, 255)]
+    );
+}
+
+#[test]
+fn dos_placas_en_la_misma_subred_mandan_un_solo_hello() {
+    let u = used(&[("Ethernet", [192, 168, 1, 10]), ("Wi-Fi", [192, 168, 1, 42])]);
+    assert_eq!(hello_targets(&u, 24), vec![Ipv4Addr::new(192, 168, 1, 255)]);
+}
+
+#[test]
+fn sin_placas_reales_no_hay_hello_dirigido() {
+    // Queda solo el 255.255.255.255 de siempre (lo manda udp_discovery aparte).
+    assert!(hello_targets(&[], ASSUMED_PREFIX).is_empty());
+}
+
+// --- peer_fate: favorito offline, no favorito afuera ---
+
+use crate::net_ifaces::{peer_fate, PeerFate};
+
+#[test]
+fn peer_con_hello_reciente_esta_online_sea_favorito_o_no() {
+    assert_eq!(peer_fate(3, 15, false), PeerFate::Online);
+    assert_eq!(peer_fate(3, 15, true), PeerFate::Online);
+    assert_eq!(peer_fate(14, 15, true), PeerFate::Online);
+}
+
+#[test]
+fn favorito_vencido_queda_offline_y_sigue_en_el_mapa() {
+    assert_eq!(peer_fate(15, 15, true), PeerFate::Offline);
+    assert_eq!(peer_fate(3600, 15, true), PeerFate::Offline);
+}
+
+#[test]
+fn no_favorito_vencido_desaparece_a_los_15_s() {
+    assert_eq!(peer_fate(15, 15, false), PeerFate::Gone);
+    assert_eq!(peer_fate(16, 15, false), PeerFate::Gone);
+    assert_eq!(peer_fate(3600, 15, false), PeerFate::Gone);
+}
+
+use crate::net_ifaces::fate_status;
+
+#[test]
+fn solo_online_se_muestra_online() {
+    assert_eq!(fate_status(peer_fate(3, 15, false)), "online");
+    assert_eq!(fate_status(peer_fate(3, 15, true)), "online");
+    assert_eq!(fate_status(peer_fate(60, 15, true)), "offline");
+    // Favorito recién sacado de favoritos mientras estaba callado: Gone, no "online".
+    assert_eq!(fate_status(peer_fate(60, 15, false)), "offline");
+}

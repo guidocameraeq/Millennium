@@ -67,8 +67,8 @@ pub struct PeerRecord {
     /// The ip/port were confirmed by a real socket source: a TCP probe to
     /// /info, or the source IP of a UDP datagram. Once `true`, mDNS
     /// A-records (which can advertise a peer's virtual NICs) no longer
-    /// overwrite the route. Reset implicitly when the record is reaped and
-    /// re-learned from mDNS.
+    /// overwrite the route. Reset when the record is reaped and re-learned
+    /// from mDNS, or when a favorite goes offline (the reaper clears it).
     pub confirmed: bool,
 }
 
@@ -138,6 +138,14 @@ pub(crate) fn build_wire_list(
         let is_manual = manual.contains(&record.id);
         let clip_sync = clipboard.is_enabled(&record.id);
         let mut wire = record.to_wire(is_fav, is_manual, clip_sync);
+        // A favorite the reaper keeps past the TTL: same `status` field the
+        // frontend already reads ("offline"), no new JSON field.
+        let ttl = crate::udp_discovery::BROADCAST_INTERVAL_SECS.saturating_mul(3);
+        wire.status = crate::net_ifaces::fate_status(crate::net_ifaces::peer_fate(
+            record.last_seen.elapsed().as_secs(),
+            ttl,
+            is_fav,
+        ));
         wire.name = apply_alias(&record.id, wire.name);
         wire.icon_type = apply_icon(&record.id, wire.icon_type);
         result.push(wire);
@@ -296,11 +304,27 @@ pub fn start(
     let icons_for_task = icons.clone();
     let my_fingerprint = identity.fingerprint.clone();
     let app_handle = app.clone();
+    let local_ip_for_pick = identity.local_ip.clone();
 
     tauri::async_runtime::spawn(async move {
         loop {
             match receiver.recv_async().await {
                 Ok(event) => {
+                    // Only a peer that announced several addresses needs our
+                    // own adapter list (NIC enumeration is blocking, so it
+                    // runs off the reactor).
+                    let several = matches!(
+                        &event,
+                        ServiceEvent::ServiceResolved(info) if info.get_addresses().len() > 1
+                    );
+                    let local: Vec<std::net::Ipv4Addr> = if several {
+                        let fb = local_ip_for_pick.clone();
+                        tokio::task::spawn_blocking(move || local_v4_ips(&fb))
+                            .await
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                     handle_event(
                         event,
                         &my_fingerprint,
@@ -312,6 +336,7 @@ pub fn start(
                         &clipboard_for_task,
                         &icons_for_task,
                         &app_handle,
+                        &local,
                     );
                 }
                 Err(e) => {
@@ -360,20 +385,50 @@ pub fn start(
             let mut reap = tokio::time::interval(Duration::from_secs(2));
             reap.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             reap.tick().await; // skip the immediate first tick
+            // Favorites that are past the TTL right now (kept in the map,
+            // shown offline). Lets the reaper tell a NEW offline / a return
+            // to online apart from "still offline" without a flag on the record.
+            let mut offline: std::collections::HashSet<String> = std::collections::HashSet::new();
             loop {
                 reap.tick().await;
                 let mut removed: Vec<String> = Vec::new();
+                let mut went_offline: Vec<String> = Vec::new();
+                let mut came_back: Vec<String> = Vec::new();
                 {
+                    use crate::net_ifaces::{peer_fate, PeerFate};
                     let mut p = peers.lock().unwrap();
-                    p.retain(|_fp, rec| {
-                        let alive = rec.last_seen.elapsed() < peer_ttl;
-                        if !alive {
-                            removed.push(rec.id.clone());
+                    p.retain(|fp, rec| {
+                        let fate = peer_fate(
+                            rec.last_seen.elapsed().as_secs(),
+                            peer_ttl.as_secs(),
+                            prefs.is_favorite(&rec.id),
+                        );
+                        match fate {
+                            PeerFate::Online => {
+                                if offline.remove(fp) {
+                                    came_back.push(rec.id.clone());
+                                }
+                                true
+                            }
+                            PeerFate::Offline => {
+                                if offline.insert(fp.clone()) {
+                                    went_offline.push(rec.id.clone());
+                                    // The old route is no longer proven: let an
+                                    // mDNS A-record with a new IP replace it on
+                                    // return, as when the record was dropped.
+                                    rec.confirmed = false;
+                                }
+                                true
+                            }
+                            PeerFate::Gone => {
+                                offline.remove(fp);
+                                removed.push(rec.id.clone());
+                                false
+                            }
                         }
-                        alive
                     });
                 }
-                if removed.is_empty() {
+                if removed.is_empty() && went_offline.is_empty() && came_back.is_empty() {
                     continue;
                 }
                 for fp in &removed {
@@ -381,6 +436,18 @@ pub fn start(
                         "[reaper] {} offline — no hello/probe for >{}s",
                         &fp[..16.min(fp.len())],
                         peer_ttl.as_secs()
+                    ));
+                }
+                for fp in &went_offline {
+                    crate::runtime_log::info(format!(
+                        "[reaper] favorite {} offline — kept as send target on its last route",
+                        &fp[..16.min(fp.len())]
+                    ));
+                }
+                for fp in &came_back {
+                    crate::runtime_log::info(format!(
+                        "[reaper] favorite {} back online",
+                        &fp[..16.min(fp.len())]
                     ));
                 }
                 // Forget fullname → id mappings for the reaped peers so a
@@ -841,6 +908,18 @@ fn mdns_ips(fallback: &str) -> Vec<IpAddr> {
     crate::net_ifaces::mdns_ip_list(&used, fallback)
 }
 
+/// Our real adapters' IPv4s (same list and fallback as the mDNS daemon uses),
+/// for `pick_peer_addr`. Blocking (NIC enumeration).
+fn local_v4_ips(fallback: &str) -> Vec<std::net::Ipv4Addr> {
+    mdns_ips(fallback)
+        .into_iter()
+        .filter_map(|ip| match ip {
+            IpAddr::V4(v4) => Some(v4),
+            IpAddr::V6(_) => None,
+        })
+        .collect()
+}
+
 /// Enable (`on`) or disable each of `ips` on the daemon, logging each one.
 fn set_mdns_ifaces(daemon: &ServiceDaemon, ips: &[IpAddr], on: bool) {
     for ip in ips {
@@ -915,6 +994,7 @@ fn handle_event(
     clipboard: &Arc<ClipboardSyncStore>,
     icons: &Arc<crate::icon_overrides::IconOverrideStore>,
     app: &AppHandle,
+    local: &[std::net::Ipv4Addr],
 ) {
     match event {
         ServiceEvent::ServiceResolved(info) => {
@@ -937,12 +1017,16 @@ fn handle_event(
                 .get_property_val_str("icon")
                 .unwrap_or("desktop")
                 .to_string();
-            let ip = info
-                .get_addresses()
-                .iter()
-                .next()
-                .map(|a| a.to_string())
-                .unwrap_or_default();
+            let candidates: Vec<IpAddr> = info.get_addresses().iter().copied().collect();
+            // `local` = our real adapters' IPs, listed by the caller off the
+            // reactor (only when the peer announced several addresses).
+            let ip = crate::net_ifaces::pick_peer_addr(
+                &candidates,
+                local,
+                crate::net_ifaces::ASSUMED_PREFIX,
+            )
+            .map(|a| a.to_string())
+            .unwrap_or_default();
 
             let port = info.get_port();
             let fullname = info.get_fullname().to_string();
