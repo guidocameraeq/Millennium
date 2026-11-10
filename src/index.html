@@ -11,7 +11,14 @@
 
   <!-- Fonts are self-hosted in styles.css (@font-face → src/fonts/*.woff2).
        The Google Fonts <link>s were removed for the strict CSP + offline use. -->
-  <link rel="stylesheet" href="styles.css" />
+  <!-- Hojas en el mismo orden en que aparecían las reglas en el viejo styles.css:
+       el orden de la cascada no cambia. -->
+  <link rel="stylesheet" href="css/comunes.css" />
+  <link rel="stylesheet" href="css/clipboard.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+  <link rel="stylesheet" href="css/clipboard-modales.css" />
+  <link rel="stylesheet" href="css/displays.css" />
+  <link rel="stylesheet" href="css/shell.css" />
 </head>
 <body>
   <!-- Background layers (fixed, behind everything) -->

@@ -190,6 +190,9 @@ async function capturar(destino) {
       const dom = await evaluar(c, 'document.documentElement.outerHTML');
       fs.writeFileSync(path.join(dir, vista + '.dom.html'), normalizar(dom));
       fs.writeFileSync(path.join(dir, vista + '.estilos.txt'), (await evaluar(c, HUELLA)) + '\n');
+      // Estado de cada @font-face: una ruta de fuente rota queda en "error".
+      const fuentes = await evaluar(c, 'Array.from(document.fonts).map((f) => f.family + " " + f.weight + " " + f.status).sort().join("\\n")');
+      fs.writeFileSync(path.join(dir, vista + '.fuentes.txt'), fuentes + '\n');
       const llamadas = await evaluar(c, 'Array.from(new Set(window.__LLAMADAS__||[])).sort().join("\\n")');
       fs.writeFileSync(path.join(dir, vista + '.llamadas.txt'), llamadas + '\n');
       const sh = await c.llamar('Page.captureScreenshot', { format: 'png' });
@@ -232,7 +235,7 @@ function comparar() {
   let ok = cargaCompleta();
   for (const vista of Object.keys(VISTAS)) {
     const lf = (s) => s.replace(/\r\n/g, '\n');
-    for (const [ext, norm] of [['dom.html', normalizar], ['llamadas.txt', lf], ['estilos.txt', lf]]) {
+    for (const [ext, norm] of [['dom.html', normalizar], ['llamadas.txt', lf], ['estilos.txt', lf], ['fuentes.txt', lf]]) {
       const a = path.join(CAPTURAS, 'antes', vista + '.' + ext);
       const d = path.join(CAPTURAS, 'despues', vista + '.' + ext);
       if (!fs.existsSync(a) || !fs.existsSync(d)) {
