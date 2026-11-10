@@ -11,14 +11,7 @@
 
   <!-- Fonts are self-hosted in styles.css (@font-face → src/fonts/*.woff2).
        The Google Fonts <link>s were removed for the strict CSP + offline use. -->
-  <!-- Hojas en el mismo orden en que aparecían las reglas en el viejo styles.css:
-       el orden de la cascada no cambia. -->
-  <link rel="stylesheet" href="css/comunes.css" />
-  <link rel="stylesheet" href="css/clipboard.css" />
-  <link rel="stylesheet" href="css/responsive.css" />
-  <link rel="stylesheet" href="css/clipboard-modales.css" />
-  <link rel="stylesheet" href="css/displays.css" />
-  <link rel="stylesheet" href="css/shell.css" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <!-- Background layers (fixed, behind everything) -->
@@ -45,8 +38,8 @@
         <!-- Switch héroe "dos apps en una" (SPEC-shell). Reemplaza los botoncitos
              CLIP|DISP y el viejo "← CLIPBOARD". Conserva id="hud-sections" y, por
              segmento, las TRES cosas que lo hacen andar: .hud-btn (el click es
-             por-elemento, js/clipboard.js, "HUD action buttons"), data-action (el dispatch) y data-section
-             (el resaltado del activo). js/displays.js lo revela solo fuera de Android
+             por-elemento, main.js ~1079), data-action (el dispatch) y data-section
+             (el resaltado del activo). main.js lo revela solo fuera de Android
              (displaysEnabled, userAgent — NO .desktop-only, que se activa también
              por ventana angosta); en Android queda oculto → app solo-Clipboard. -->
         <div class="hud-sections app-switch" id="hud-sections" hidden role="tablist" aria-label="Cambiar de app">
@@ -746,7 +739,7 @@
 
     <!-- Banner GLOBAL del auto-revert (Displays v2 Fase 2). Antes era la barra
          #displays-pending DENTRO del modal; ahora vive a nivel app, visible desde
-         cualquier sección. Conserva los mismos ids que ya maneja src/js/
+         cualquier sección. Conserva los mismos ids que ya maneja main.js
          (renderDisplaysPending + los listeners de CONFIRMAR/REVERTIR), así el
          cambio es de marco, no de lógica. Molde tomado de .backend-banner. -->
     <div class="displays-banner" id="displays-pending" hidden role="alert">
@@ -761,13 +754,6 @@
     </div>
   </div>
 
-  <!-- Scripts clásicos (sin módulos ni bundler) que comparten el ámbito global:
-       el orden de carga es el orden en que corría el viejo main.js. -->
-  <script src="js/comunes.js"></script>
-  <script src="js/clipboard.js"></script>
-  <script src="js/displays.js"></script>
-  <script src="js/displays-escenas.js"></script>
-  <script src="js/clipboard-modales.js"></script>
-  <script src="js/arranque.js"></script>
+  <script src="main.js"></script>
 </body>
 </html>

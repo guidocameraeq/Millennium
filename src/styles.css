@@ -1,0 +1,3764 @@
+/* ==========================================================================
+   Millennium Clipboard // GRID
+   Direction B: TRON / Outrun maximalist — neon, perspective grid, HUD.
+   ========================================================================== */
+
+/* Self-hosted fonts (Fase 3, Tarea 3.2) — were Google Fonts <link>s, moved
+   local so a strict CSP (default-src 'self') doesn't block them and the app
+   works fully offline. woff2, latin subset. Orbitron & JetBrains Mono are
+   variable fonts (one file covers the whole weight range). Files in src/fonts/.
+   Licenses: SIL Open Font License 1.1 (all four). */
+@font-face {
+  font-family: 'Orbitron';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('fonts/orbitron.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Audiowide';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/audiowide-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Share Tech Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/sharetechmono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('fonts/jetbrainsmono.woff2') format('woff2');
+}
+
+:root {
+  /* Palette */
+  --bg-deep: #02020a;
+  --bg-base: #050513;
+  --bg-card: rgba(8, 12, 28, 0.72);
+  --bg-card-hi: rgba(14, 22, 44, 0.85);
+
+  --neon-cyan: #00f0ff;
+  --neon-cyan-dim: #0a8fa0;
+  --neon-cyan-glow: rgba(0, 240, 255, 0.55);
+  --neon-cyan-soft: rgba(0, 240, 255, 0.12);
+
+  /* Color por app (SPEC-shell "dos apps en una"). Token semántico del acento
+     activo. Por DEFECTO = cyan: el boot arranca teñido de Clipboard sin que el
+     JS tenga que setear nada (switchSection no corre al arrancar). Solo la app
+     Displays lo redefine a violeta (regla body[data-app="displays"] abajo). Lo
+     usa SOLO el chrome nuevo (switch, barras por app, marco) y el bloque de
+     reglas de Displays; los 222 --neon-cyan del resto de la hoja NO se tocan. */
+  --app-accent: var(--neon-cyan);
+  --app-accent-dim: var(--neon-cyan-dim);
+  --app-accent-glow: var(--neon-cyan-glow);
+  --app-accent-soft: var(--neon-cyan-soft);
+
+  --neon-magenta: #ff2bd6;
+  --neon-magenta-glow: rgba(255, 43, 214, 0.45);
+
+  --neon-amber: #ffb347;
+  --neon-green: #39ff14;
+  --neon-red: #ff3860;
+
+  --text-bright: #e6fbff;
+  --text-mute: #7894a8;
+  --text-dim: #607c8f; /* T6: raised from #455d70 for legibility (WCAG AA 4.7:1) */
+
+  --grid-line: rgba(0, 240, 255, 0.08);
+  --grid-line-hot: rgba(0, 240, 255, 0.22);
+
+  /* Fonts */
+  --font-display: 'Orbitron', 'Audiowide', sans-serif;
+  --font-logo: 'Audiowide', 'Orbitron', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Share Tech Mono', 'Consolas', monospace;
+  --font-tech: 'Share Tech Mono', 'JetBrains Mono', monospace;
+}
+
+/* La app Displays vira el acento a violeta. #b45cff pasa AA (≈5.7:1) como texto
+   sobre los fondos oscuros de Displays, así que sirve de acento completo (texto,
+   bordes y glow). El magenta (--neon-magenta) sigue marcando "lo elegido" DENTRO
+   de Displays; esto es solo el color del marco. La franja del resto de la app
+   (Clipboard, modales generales, banners) queda en cyan porque no usa
+   --app-accent. */
+body[data-app="displays"] {
+  --app-accent: #b45cff;
+  --app-accent-dim: #7a3db8;
+  --app-accent-glow: rgba(180, 92, 255, 0.5);
+  --app-accent-soft: rgba(180, 92, 255, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--neon-cyan);
+  color: var(--bg-deep);
+}
+
+/* ==========================================================================
+   BACKGROUND LAYERS
+   Stacked, fixed, behind everything.
+   ========================================================================== */
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(20, 30, 80, 0.6) 0%, var(--bg-deep) 65%),
+    var(--bg-deep);
+  z-index: -10;
+}
+
+.bg-horizon {
+  position: fixed;
+  left: -10%;
+  right: -10%;
+  bottom: -10vh;
+  height: 75vh;
+  perspective: 320px;
+  perspective-origin: 50% 0%;
+  z-index: -9;
+  pointer-events: none;
+}
+
+.horizon-floor {
+  position: absolute;
+  inset: 0;
+  transform: rotateX(62deg);
+  transform-origin: 50% 0%;
+}
+
+/* Grid lines live on ::before and scroll via transform (compositor-only,
+   no repaint). The extra 64px cell above hides the seam of the loop —
+   translateY distance and background-size must both stay at 64px. */
+.horizon-floor::before {
+  content: '';
+  position: absolute;
+  inset: -64px 0 0 0;
+  background-image:
+    linear-gradient(var(--grid-line-hot) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line-hot) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px;
+  will-change: transform;
+}
+
+/* Horizon glow stays static above the moving lines (paints after ::before). */
+.horizon-floor::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(255, 43, 214, 0.06) 60%,
+    rgba(0, 240, 255, 0.18) 100%);
+}
+
+@keyframes grid-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(64px); }
+}
+
+.bg-vignette {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 30%,
+    rgba(0, 0, 0, 0.65) 100%
+  );
+  z-index: -5;
+  pointer-events: none;
+}
+
+/* Single horizontal scanline drifting down */
+.scanline {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 1000;
+  pointer-events: none;
+  background: linear-gradient(to right,
+    transparent 0%,
+    var(--neon-cyan) 35%,
+    rgba(255, 255, 255, 0.9) 50%,
+    var(--neon-cyan) 65%,
+    transparent 100%);
+  box-shadow: 0 0 18px var(--neon-cyan-glow);
+  opacity: 0.55;
+}
+
+@keyframes scan-drop {
+  0%   { transform: translateY(-4px); opacity: 0; }
+  5%   { opacity: 0.55; }
+  95%  { opacity: 0.55; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* Subtle noise */
+.noise {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.7'/></svg>");
+}
+
+/* ==========================================================================
+   APP SHELL
+   ========================================================================== */
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+  padding: 18px 22px;
+  gap: 14px;
+}
+
+/* ==========================================================================
+   TOP HUD
+   ========================================================================== */
+
+.hud {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 18px;
+  background: linear-gradient(180deg,
+    rgba(0, 240, 255, 0.06) 0%,
+    rgba(0, 240, 255, 0.02) 100%);
+  /* SPEC-shell: el marco del top bar vira con la app (cyan⇄violeta) vía
+     --app-accent. Por defecto = cyan (idéntico a hoy); solo cambia en Displays. */
+  border: 1px solid var(--app-accent-soft);
+  border-bottom-color: var(--app-accent-glow);
+  box-shadow:
+    0 0 24px var(--app-accent-soft),
+    inset 0 -1px 0 var(--app-accent-glow);
+  position: relative;
+}
+
+.hud::before,
+.hud::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--app-accent);
+  box-shadow: 0 0 8px var(--app-accent-glow);
+}
+.hud::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.hud::after  { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+
+/* Logo */
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.logo-mark {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+  letter-spacing: -2px;
+}
+
+.logo-text {
+  font-family: var(--font-logo);
+  font-size: 18px;
+  letter-spacing: 4px;
+  color: var(--text-bright);
+  text-shadow: 0 0 18px var(--neon-cyan-glow);
+}
+
+.logo-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* HUD center stats */
+.hud-center {
+  display: flex;
+  gap: 28px;
+}
+
+.hud-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.hud-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+.hud-value {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+  text-shadow: 0 0 6px var(--neon-cyan-soft);
+}
+
+.hud-value.mono {
+  font-family: var(--font-mono);
+}
+
+/* HUD right buttons */
+.hud-right {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.hud-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease-out;
+}
+
+.hud-btn-glyph {
+  /* SPEC-shell: los glyphs de la barra viran con la app (--app-accent). El de
+     ⚙ APP se neutraliza aparte (.app-settings-btn) y los del switch llevan color
+     fijo por segmento (.app-switch), ambos con más especificidad. */
+  color: var(--app-accent);
+  text-shadow: 0 0 8px var(--app-accent-glow);
+}
+
+.hud-btn:hover {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 16px var(--app-accent-glow), inset 0 0 12px var(--app-accent-soft);
+  color: var(--app-accent);
+}
+
+.hud-btn:active {
+  transform: translateY(1px);
+}
+
+/* Pestañas de sección CLIPBOARD | DISPLAYS (Displays v2 Fase 2). Reusan el molde
+   .hud-btn; la activa queda iluminada como un .hud-btn:hover fijo. El grupo
+   arranca hidden y main.js lo revela solo fuera de Android (userAgent), así en
+   Android no queda una pestaña muerta. */
+.hud-sections {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.hud-sections[hidden] { display: none !important; }
+
+/* Compactas: son DOS teclas donde antes había una (DISP). Con este padding más
+   corto, las 6 teclas del HUD entran en la ventana por defecto (1080). */
+.hud-section-btn {
+  padding: 7px 9px;
+}
+
+.hud-section-btn.is-active {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: 0 0 16px var(--neon-cyan-glow), inset 0 0 12px rgba(0, 240, 255, 0.08);
+}
+
+/* Con la tecla extra, el HUD se aprieta antes de que entre el modo mobile
+   (pre.js lo activa recién en <=900). En la franja angosta de escritorio
+   (901–1040) escondemos las stats HOST/NODE del centro — lo menos crítico —
+   para que SCAN/LOG/QR/CLIP/DISP/CONF siempre entren sin cortarse. Arriba de
+   1040 (incluye el 1080 por defecto) las stats se ven normal. */
+@media (max-width: 1040px) {
+  .hud-center { display: none; }
+}
+
+/* ==========================================================================
+   MAIN GRID
+   ========================================================================== */
+
+.grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  min-height: 0;
+}
+
+/* --- Secciones de nivel superior (Displays v2 Fase 2) -------------------- */
+/* CLIPBOARD (.grid) y DISPLAYS (.displays-section) comparten la fila central
+   (1fr) del grid de .app; solo una está a la vista. En desktop auto-ubican bien
+   porque siempre hay exactamente UNA visible (la otra es display:none). En
+   mobile .app pasa a flex-column y estas reglas no estorban (displays igual no
+   se renderiza en Android). Se ocultan con [hidden], NUNCA se desmontan: un
+   transfer en curso del clipboard sobrevive el ida y vuelta.
+   El !important es la piedra de siempre: .grid trae display:grid y
+   .displays-section trae display:flex, y cualquier `display` del autor le gana
+   al [hidden] del user-agent (ver .hud-btn[hidden], .displays-pane[hidden]). */
+#clipboard-section[hidden],
+.displays-section[hidden] { display: none !important; }
+
+.displays-section {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+/* Generic card frame */
+.card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-shadow:
+    0 0 32px rgba(0, 240, 255, 0.05),
+    inset 0 0 60px rgba(0, 240, 255, 0.02);
+}
+
+/* Decorative corner brackets on cards */
+.card-corners {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.card-corners span {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--neon-cyan);
+  box-shadow: 0 0 6px var(--neon-cyan-glow);
+}
+.card-corners span:nth-child(1) { top: -1px;    left: -1px;    border-right: none; border-bottom: none; }
+.card-corners span:nth-child(2) { top: -1px;    right: -1px;   border-left:  none; border-bottom: none; }
+.card-corners span:nth-child(3) { bottom: -1px; left: -1px;    border-right: none; border-top:    none; }
+.card-corners span:nth-child(4) { bottom: -1px; right: -1px;   border-left:  none; border-top:    none; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+
+.card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-bright);
+  text-shadow: 0 0 12px var(--neon-cyan-glow);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan), 0 0 18px var(--neon-cyan-glow);
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+
+.card-arrow {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+}
+
+.target {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 12px var(--neon-cyan-glow);
+  margin-left: 4px;
+}
+
+.target-hex {
+  display: none;
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 2px;
+}
+
+.badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 3px 8px;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.05);
+}
+
+/* ==========================================================================
+   FILTER BAR
+   ========================================================================== */
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.filter-btn {
+  padding: 5px 12px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filter-btn:hover {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+}
+
+.filter-btn.active {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px var(--neon-cyan-glow), inset 0 0 8px rgba(0, 240, 255, 0.15);
+}
+
+.filter-spacer { flex: 1; }
+
+.filter-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+
+/* ==========================================================================
+   PEER LIST
+   ========================================================================== */
+
+.peer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.peer-list::-webkit-scrollbar { width: 6px; }
+.peer-list::-webkit-scrollbar-thumb { background: var(--neon-cyan-soft); }
+.peer-list::-webkit-scrollbar-track { background: transparent; }
+
+.peer-loading,
+.peer-empty {
+  list-style: none;
+  text-align: center;
+  padding: 28px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--text-mute);
+  border: 1px dashed var(--neon-cyan-soft);
+}
+
+.peer-empty {
+  color: var(--text-dim);
+}
+
+.peer-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 12px;
+  background: rgba(8, 14, 30, 0.5);
+  border: 1px solid var(--neon-cyan-soft);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.18s ease-out;
+}
+
+.peer-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: all 0.2s;
+}
+
+.peer-item:hover {
+  background: rgba(0, 240, 255, 0.04);
+  border-color: rgba(0, 240, 255, 0.35);
+  transform: translateX(2px);
+}
+
+.peer-item:hover::before {
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan-glow);
+}
+
+.peer-item.selected {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 18px var(--neon-cyan-glow), inset 0 0 24px rgba(0, 240, 255, 0.06);
+}
+
+.peer-item.selected::before {
+  background: var(--neon-cyan);
+  box-shadow: 0 0 14px var(--neon-cyan), 0 0 22px var(--neon-cyan-glow);
+}
+
+.peer-icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--neon-cyan);
+  background:
+    radial-gradient(circle at center, rgba(255, 200, 72, 0.10), rgba(0, 240, 255, 0.04) 70%);
+  overflow: hidden;
+}
+
+.peer-icon img.peer-item-img,
+.peer-item-img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 5px rgba(255, 200, 72, 0.6))
+          drop-shadow(0 0 2px rgba(0, 0, 0, 0.5));
+}
+
+.peer-item.selected .peer-icon {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px var(--neon-cyan-glow);
+}
+
+.peer-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.peer-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.peer-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--text-bright);
+}
+
+.peer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.peer-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-mute);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1.1;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.peer-action-btn.details-btn {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.peer-item:hover .peer-action-btn {
+  color: var(--neon-cyan);
+}
+
+.peer-action-btn:hover {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan-soft);
+  background: rgba(0, 240, 255, 0.08);
+}
+
+/* Tiny inline indicators (read-only badges; clickable controls live in the
+   peer details modal). */
+.peer-indicator {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.peer-indicator.fav-ind {
+  color: var(--neon-amber);
+  text-shadow: 0 0 6px rgba(255, 179, 71, 0.55);
+}
+.peer-indicator.clip-ind {
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+}
+
+.rename-input {
+  background: rgba(0, 12, 24, 0.85);
+  border: 1px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 1px 4px;
+  outline: none;
+  width: 100%;
+  min-width: 60px;
+  box-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+.clip-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 1px 3px;
+  line-height: 1;
+  filter: grayscale(1);
+  opacity: 0.4;
+  transition: filter 0.15s, opacity 0.15s, text-shadow 0.15s;
+}
+
+.clip-btn[data-on="true"] {
+  filter: none;
+  opacity: 1;
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+.clip-btn:hover {
+  opacity: 1;
+}
+
+.fav-btn {
+  background: transparent;
+  border: none;
+  color: var(--neon-amber);
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.6);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+
+.fav-btn[data-favorite="false"] {
+  color: var(--text-dim);
+  text-shadow: none;
+}
+
+.fav-btn:hover {
+  transform: scale(1.2);
+}
+
+.peer-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+.peer-hex { color: var(--neon-magenta); text-shadow: 0 0 6px var(--neon-magenta-glow); }
+.peer-ip  { color: var(--text-mute); }
+
+.peer-status {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.peer-status .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.peer-status.online       { color: var(--neon-green); }
+.peer-status.online .status-dot {
+  background: var(--neon-green);
+  box-shadow: 0 0 8px rgba(57, 255, 20, 0.65);
+}
+.peer-status.away         { color: var(--neon-amber); }
+.peer-status.away .status-dot {
+  background: var(--neon-amber);
+  box-shadow: 0 0 6px rgba(255, 179, 71, 0.6);
+}
+.peer-status.offline      { color: var(--text-dim); }
+.peer-status.offline .status-dot {
+  background: var(--text-dim);
+  box-shadow: none;
+}
+
+/* Greyed-out card for offline favorites */
+.peer-item[data-status="offline"] {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+.peer-item[data-status="offline"]:hover {
+  opacity: 0.85;
+}
+.peer-item[data-status="offline"] .peer-icon {
+  color: var(--text-dim);
+  border-color: var(--text-dim);
+  background: transparent;
+  box-shadow: none;
+}
+.peer-item[data-status="offline"].selected {
+  background: rgba(120, 148, 168, 0.08);
+  border-color: var(--text-mute);
+  box-shadow: 0 0 8px rgba(120, 148, 168, 0.25);
+}
+.peer-item[data-status="offline"].selected::before {
+  background: var(--text-mute);
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   COMPOSER
+   ========================================================================== */
+
+.mode-switch {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-mute);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mode-btn:first-child { border-right: none; }
+
+.mode-glyph {
+  font-family: var(--font-mono);
+  color: var(--neon-cyan);
+  opacity: 0.5;
+}
+
+.mode-btn.active {
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 18px var(--neon-cyan-glow), inset 0 0 18px rgba(0, 240, 255, 0.06);
+}
+
+.mode-btn.active .mode-glyph { opacity: 1; text-shadow: 0 0 8px var(--neon-cyan-glow); }
+
+.mode-btn:hover:not(.active) {
+  color: var(--neon-cyan);
+  border-color: rgba(0, 240, 255, 0.4);
+}
+
+.mode-panel {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mode-panel.active {
+  display: flex;
+}
+
+/* Textarea wrap with embedded grid */
+.textarea-wrap {
+  flex: 1;
+  position: relative;
+  border: 1px solid var(--neon-cyan-soft);
+  background: rgba(0, 12, 24, 0.6);
+  box-shadow: inset 0 0 24px rgba(0, 240, 255, 0.05);
+  overflow: hidden;
+}
+
+.textarea-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.6;
+}
+
+#text-composer {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+  caret-color: var(--neon-cyan);
+}
+
+#text-composer::placeholder {
+  color: var(--text-dim);
+  text-shadow: none;
+  font-style: italic;
+}
+
+.composer-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+
+/* Dropzone */
+.dropzone {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 12, 24, 0.5);
+  border: 1px dashed var(--neon-cyan-soft);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dropzone:hover {
+  background: rgba(0, 240, 255, 0.04);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 24px var(--neon-cyan-glow), inset 0 0 30px rgba(0, 240, 255, 0.06);
+}
+
+.dropzone-icon {
+  font-size: 48px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 24px var(--neon-cyan-glow);
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+.dropzone-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--text-bright);
+  text-align: center;
+}
+
+.dropzone-text small {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+
+/* In-box queue state summary ("N archivo(s) listo(s)") — T4. */
+.dropzone-count {
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+.dropzone-count[hidden] { display: none; }
+
+.dropzone-corners {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.dropzone-corners span {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--neon-cyan);
+}
+.dropzone-corners span:nth-child(1) { top: 6px;    left: 6px;    border-right: none; border-bottom: none; }
+.dropzone-corners span:nth-child(2) { top: 6px;    right: 6px;   border-left:  none; border-bottom: none; }
+.dropzone-corners span:nth-child(3) { bottom: 6px; left: 6px;    border-right: none; border-top:    none; }
+.dropzone-corners span:nth-child(4) { bottom: 6px; right: 6px;   border-left:  none; border-top:    none; }
+
+.file-queue {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--neon-cyan);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Cap the list so many files scroll internally instead of pushing TRANSMIT
+     off-screen (T4). flex:none stops the parent .mode-panel column stretching it. */
+  flex: none;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.file-queue li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(0, 240, 255, 0.04);
+  border-left: 2px solid var(--neon-cyan);
+}
+
+.file-queue .q-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-queue .q-meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-mute);
+}
+
+/* Remove-from-queue button (replaces the old <a>[X] link) — T3/T4. */
+.file-queue .queue-remove {
+  flex: none;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--neon-magenta);
+  cursor: pointer;
+}
+.file-queue .queue-remove:hover {
+  text-shadow: 0 0 8px var(--neon-magenta-glow);
+}
+
+/* ==========================================================================
+   SEND SECTION (progress + transmit button)
+   ========================================================================== */
+
+.send-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--neon-cyan-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+.progress-pct { color: var(--text-bright); }
+
+.progress-segments {
+  display: grid;
+  grid-template-columns: repeat(28, 1fr);
+  gap: 3px;
+  height: 12px;
+}
+
+.progress-segments .seg {
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid var(--neon-cyan-soft);
+  transition: all 0.12s;
+}
+
+.progress-segments .seg.on {
+  background: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+/* Transmit button — the hero CTA */
+.transmit-btn {
+  position: relative;
+  width: 100%;
+  padding: 16px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan);
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s;
+  box-shadow:
+    0 0 18px rgba(0, 240, 255, 0.15),
+    inset 0 0 18px rgba(0, 240, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.transmit-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(0, 240, 255, 0.18) 50%,
+    transparent 100%);
+  transform: translateX(-100%);
+  transition: transform 0.5s;
+}
+
+.transmit-btn:hover {
+  background: rgba(0, 240, 255, 0.08);
+  box-shadow:
+    0 0 32px var(--neon-cyan-glow),
+    inset 0 0 24px rgba(0, 240, 255, 0.12);
+  color: var(--neon-cyan);
+  text-shadow: 0 0 12px var(--neon-cyan-glow);
+}
+
+.transmit-btn:hover::before {
+  transform: translateX(100%);
+}
+
+.transmit-btn:active {
+  transform: translateY(1px);
+}
+
+.transmit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--text-dim);
+}
+
+.transmit-arrow {
+  color: var(--neon-cyan);
+  font-size: 14px;
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+}
+
+/* ==========================================================================
+   STATUS STRIP (bottom)
+   ========================================================================== */
+
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 16px;
+  background: rgba(0, 240, 255, 0.04);
+  /* SPEC-shell: la franja de estado es chrome → su borde vira con la app. */
+  border: 1px solid var(--app-accent-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-item .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  box-shadow: 0 0 8px rgba(57, 255, 20, 0.6);
+}
+
+.status-text { color: var(--text-bright); }
+.status-key  { color: var(--text-dim); letter-spacing: 3px; }
+.status-val  { color: var(--app-accent); } /* SPEC-shell: acento de la franja vira con la app */
+
+/* Sound toggle (custom switch) */
+.sound-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sound-toggle input {
+  /* Visually hidden but STILL focusable / in tab order (was display:none, which
+     removed every switch from keyboard reach). The input stays rendered so the
+     `input:checked + .sound-track` sibling styling below keeps working. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sound-track {
+  width: 30px;
+  height: 14px;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid var(--neon-cyan-soft);
+  position: relative;
+  transition: all 0.2s;
+}
+
+.sound-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  background: var(--text-mute);
+  transition: all 0.2s;
+}
+
+.sound-toggle input:checked + .sound-track {
+  background: rgba(0, 240, 255, 0.18);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+.sound-toggle input:checked + .sound-track .sound-thumb {
+  left: 17px;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 6px var(--neon-cyan);
+}
+
+/* Keyboard focus ring (T3) — only on keyboard nav (:focus-visible), never on a
+   mouse click, so the neon look is untouched for pointer users. */
+button:focus-visible,
+textarea:focus-visible,
+.text-input:focus-visible,
+.rename-input:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+/* #text-composer sets outline:none at id specificity, so its ring must also be
+   id-specific to win. */
+#text-composer:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: -2px;
+}
+/* The switch <input> is visually hidden, so paint its focus ring on the
+   adjacent visible track. */
+.sound-toggle input:focus-visible + .sound-track {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   ALERT / TOAST
+   ========================================================================== */
+
+.alert {
+  position: fixed;
+  right: 28px;
+  bottom: 80px;
+  z-index: 1001;
+  width: 320px;
+  padding: 14px 16px;
+  background: var(--bg-card-hi);
+  border: 1px solid var(--neon-cyan);
+  box-shadow:
+    0 0 32px var(--neon-cyan-glow),
+    inset 0 0 24px rgba(0, 240, 255, 0.08);
+  animation: alert-in 0.3s ease-out;
+}
+
+/* Incoming text sits top-right so it never overlaps the bottom-right ACK
+   toast — the two can be on screen at once (receive while sending). */
+#incoming-toast {
+  top: 80px;
+  bottom: auto;
+}
+
+.alert-corners {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.alert-corners span {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--neon-cyan);
+}
+.alert-corners span:nth-child(1) { top: -1px;    left: -1px;    border-right: none; border-bottom: none; }
+.alert-corners span:nth-child(2) { top: -1px;    right: -1px;   border-left:  none; border-bottom: none; }
+.alert-corners span:nth-child(3) { bottom: -1px; left: -1px;    border-right: none; border-top:    none; }
+.alert-corners span:nth-child(4) { bottom: -1px; right: -1px;   border-left:  none; border-top:    none; }
+
+@keyframes alert-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.alert-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+
+.alert-glyph { font-size: 14px; }
+
+.alert-body {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-bright);
+  letter-spacing: 1px;
+}
+
+/* Incoming text variant of the alert */
+.incoming-body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+  padding: 10px 12px;
+  background: rgba(0, 240, 255, 0.05);
+  border: 1px solid var(--neon-cyan-soft);
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  letter-spacing: 0.5px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.incoming-meta {
+  font-size: 9px;
+  color: var(--text-mute);
+  letter-spacing: 2px;
+  margin-bottom: 10px;
+}
+
+.incoming-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.incoming-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.incoming-btn:hover {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+  box-shadow: 0 0 12px var(--neon-cyan-glow);
+}
+
+/* ==========================================================================
+   MODAL (incoming files prompt + settings)
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 4, 12, 0.78);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  animation: backdrop-in 0.18s ease-out;
+}
+
+.modal-backdrop[hidden] {
+  display: none !important;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  position: relative;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card-hi);
+  border: 1px solid var(--neon-cyan);
+  box-shadow:
+    0 0 48px var(--neon-cyan-glow),
+    inset 0 0 24px rgba(0, 240, 255, 0.06);
+  animation: modal-in 0.22s ease-out;
+}
+
+@keyframes modal-in {
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 4px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px var(--neon-cyan-glow);
+}
+
+.modal-glyph {
+  font-size: 14px;
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+.modal-body {
+  padding: 16px 18px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.modal-sender {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--neon-cyan-soft);
+}
+.modal-sender-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-bright);
+}
+.modal-sender-hex {
+  font-size: 11px;
+  color: var(--neon-magenta);
+  text-shadow: 0 0 6px var(--neon-magenta-glow);
+  letter-spacing: 2px;
+}
+
+.modal-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--text-mute);
+  margin-bottom: 10px;
+}
+.modal-stat-sep { color: var(--neon-cyan); opacity: 0.7; }
+
+.modal-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--neon-cyan-soft);
+  background: rgba(0, 12, 24, 0.4);
+}
+.modal-file-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--neon-cyan);
+  border-bottom: 1px dotted rgba(0, 240, 255, 0.08);
+}
+.modal-file-list li:last-child { border-bottom: none; }
+.modal-file-list .file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.modal-file-list .file-size {
+  color: var(--text-mute);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+.modal-timer {
+  margin-top: 12px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--neon-cyan-soft);
+  background: rgba(0, 8, 20, 0.5);
+}
+.modal-btn {
+  flex: 1;
+  padding: 12px 16px;
+  background: transparent;
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.modal-btn.small {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+.modal-btn:hover {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+  box-shadow: 0 0 16px var(--neon-cyan-glow);
+}
+.modal-btn.accept {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: inset 0 0 12px rgba(0, 240, 255, 0.08);
+}
+.modal-btn.accept:hover {
+  background: rgba(0, 240, 255, 0.15);
+}
+.modal-btn.reject:hover {
+  border-color: var(--neon-red);
+  color: var(--neon-red);
+  text-shadow: 0 0 8px rgba(255, 56, 96, 0.5);
+  box-shadow: 0 0 16px rgba(255, 56, 96, 0.4);
+}
+
+/* Settings rows */
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--neon-cyan-soft);
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row.settings-info { opacity: 0.7; }
+.settings-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text-mute);
+}
+.settings-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.settings-value {
+  font-size: 12px;
+  color: var(--text-bright);
+  word-break: break-all;
+}
+
+/* Text input inside modals (Fase 8) */
+.text-input {
+  flex: 1;
+  background: rgba(0, 12, 24, 0.6);
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--neon-cyan);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 8px 10px;
+  outline: none;
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+}
+.text-input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 14px var(--neon-cyan-glow), inset 0 0 8px rgba(0, 240, 255, 0.08);
+}
+.text-input::placeholder {
+  color: var(--text-dim);
+  text-shadow: none;
+}
+
+.modal-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--neon-red);
+  background: rgba(255, 56, 96, 0.08);
+  color: var(--neon-red);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-shadow: 0 0 6px rgba(255, 56, 96, 0.4);
+}
+
+/* "+ ADD" peer button in the filter bar */
+.filter-btn.add-peer-btn {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+}
+.filter-btn.add-peer-btn:hover {
+  background: rgba(255, 43, 214, 0.08);
+  box-shadow: 0 0 12px var(--neon-magenta-glow), inset 0 0 8px rgba(255, 43, 214, 0.12);
+  text-shadow: 0 0 6px var(--neon-magenta-glow);
+}
+
+/* Filter hint sits below the filter bar now so it has its own line */
+.filter-hint {
+  display: block;
+  margin-bottom: 8px;
+  text-align: right;
+  padding-right: 2px;
+}
+
+/* Manual-peer indicator badge */
+.peer-name-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.peer-name-wrap .peer-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.peer-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  font-weight: normal;
+  line-height: 1.3;
+  color: var(--neon-magenta);
+  border: 1px solid var(--neon-magenta);
+  text-shadow: 0 0 4px var(--neon-magenta-glow);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+/* Tablet-ish: stack peers + composer but keep HUD wide */
+@media (max-width: 880px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+/* Mobile (phone portrait): full redesign so the app is actually usable
+   on a touch screen. There are TWO ways this block activates:
+     1. The viewport is ≤768 CSS px (normal media query path).
+     2. JS in <head> adds `html.is-mobile` (forced via the rule block
+        further down). We need both because some Android WebView
+        versions get confused by combined media queries that mix
+        width + interaction-media features. */
+@media (max-width: 768px) {
+  body { font-size: 13px; }
+
+  .app {
+    padding: 0;
+    min-height: 100vh;
+  }
+
+  /* ---- HUD compacted ---- */
+  .hud {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--neon-cyan-soft);
+    background: rgba(4, 8, 18, 0.85);
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    backdrop-filter: blur(10px);
+  }
+  .hud-left { width: 100%; display: flex; justify-content: center; }
+  .logo { gap: 4px; }
+  .logo-mark { font-size: 13px; }
+  .logo-text { font-size: 14px; letter-spacing: 3px; }
+  .logo-sub { font-size: 8px; letter-spacing: 1.5px; }
+
+  /* Hide HOST/NODE/UPTIME on phones — the info is in Settings if needed. */
+  .hud-center { display: none; }
+
+  /* HUD action buttons: compact, icon-led, single row scrollable if needed. */
+  .hud-right {
+    width: 100%;
+    display: grid;
+    /* auto-fit, no un numero fijo: el HUD tiene 4 botones en Android (DISP se
+       oculta) y 5 en Windows. Un repeat(4) dejaba a DISP solo en una 2da fila
+       ocupando 1/4 del ancho; un repeat(5) dejaria un hueco en Android. */
+    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+    gap: 6px;
+    justify-content: stretch;
+  }
+  .hud-btn {
+    padding: 8px 4px;
+    font-size: 9px;
+    letter-spacing: 1.2px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+  .hud-btn-glyph {
+    font-size: 14px;
+    margin-right: 0;
+  }
+
+  /* ---- Main grid: stack peers above composer ---- */
+  .grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+  .card {
+    border-radius: 0;
+    padding: 12px;
+  }
+  .card-head { padding-bottom: 8px; }
+  .card-title { font-size: 11px; letter-spacing: 2px; }
+
+  /* ---- Peer card ---- */
+  .peers { max-height: 50vh; display: flex; flex-direction: column; }
+  .peer-list {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+  }
+  .peer-item {
+    padding: 12px 10px;
+    min-height: 64px;
+    gap: 10px;
+  }
+  .peer-icon { width: 46px; height: 46px; }
+  .peer-icon img.peer-item-img,
+  .peer-item-img { width: 38px; height: 38px; }
+  .peer-name { font-size: 13px; letter-spacing: 1px; }
+  .peer-meta { font-size: 10px; }
+  .peer-status { font-size: 9px; }
+  .peer-toggle {
+    width: 38px;
+    height: 38px;
+    font-size: 17px;
+  }
+  .peer-action-btn.details-btn {
+    min-width: 38px;
+    min-height: 38px;
+    font-size: 22px;
+  }
+
+  /* ---- Filter bar ---- */
+  .filter-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 10px;
+  }
+
+  /* ---- Composer ---- */
+  .composer { flex: 1; min-height: 280px; }
+  .mode-switch { gap: 4px; }
+  .mode-btn { min-height: 40px; font-size: 10px; padding: 6px 8px; }
+  .compose-area textarea {
+    min-height: 120px;
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .compose-bar { flex-wrap: wrap; gap: 6px; }
+  .send-btn {
+    min-height: 48px;
+    font-size: 12px;
+    flex: 1 1 100%;
+    order: 99;
+  }
+
+  /* ---- Status / progress bar at the bottom of composer ---- */
+  .progress-block { font-size: 10px; }
+  .status-msg { font-size: 10px; }
+
+  /* ---- Modals: take most of the screen ---- */
+  .modal-backdrop { padding: 0; }
+  .modal,
+  .settings-modal-wide,
+  .log-modal {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    border-top: 2px solid var(--neon-cyan);
+    border-bottom: 2px solid var(--neon-cyan);
+  }
+  .modal-head {
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  .modal-body { padding: 14px; }
+  .modal-actions {
+    padding: 10px 14px;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .modal-btn {
+    width: 100%;
+    min-height: 48px;
+    font-size: 12px;
+  }
+
+  .settings-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 10px 0;
+  }
+  .settings-label { font-size: 10px; letter-spacing: 1.5px; }
+
+  /* Icon picker in peer details: more spread out */
+  .icon-current { width: 76px; height: 76px; }
+  .icon-current svg,
+  .icon-current img.peer-item-img { width: 56px; height: 56px; }
+  .icon-pick { width: 52px; height: 52px; }
+  .icon-pick svg,
+  .icon-pick img.peer-item-img { width: 38px; height: 38px; }
+
+  /* Runtime log on phones: smaller mono so more fits */
+  .log-pane { font-size: 10px; padding: 8px; }
+
+  /* HUD logo subline: trim version text horizontally on tight screens. */
+  .logo-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
+
+  /* Disable hover transforms — they read weird on tap */
+  .peer-item:hover { transform: none; }
+  .peer-toggle:hover { transform: none; }
+}
+
+/* Very narrow phones (≤380 px) — get even more aggressive */
+@media (max-width: 380px) {
+  .hud-btn { font-size: 8px; padding: 6px 2px; }
+  .hud-btn-glyph { font-size: 13px; }
+  .peer-icon { width: 40px; height: 40px; }
+  .peer-icon img.peer-item-img { width: 32px; height: 32px; }
+  .peer-toggle { width: 34px; height: 34px; font-size: 15px; }
+}
+
+/* Belt-and-suspenders: never allow horizontal scroll, ever. */
+html, body, .app {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* ==========================================================================
+   MOBILE OVERRIDE — fallback when @media (max-width:768px) doesn't fire.
+   The inline <script> in index.html adds `html.is-mobile` based on UA,
+   touch capability, or window.innerWidth. These rules duplicate the
+   STRUCTURAL bits of the mobile media query with !important so they
+   always win, even if the media query was discarded by a buggy parser
+   in the Android WebView.
+   We only repeat the *layout* parts here (display, grid columns, flex
+   direction, sticky/scroll behavior). The cosmetic mobile rules
+   (font-size tweaks, padding, etc.) live only in the @media block —
+   if those fail it's annoying but the app is still usable.
+   ========================================================================== */
+html.is-mobile .app { padding: 0 !important; min-height: 100vh !important; }
+
+html.is-mobile .hud {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  padding: 10px 12px !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 200 !important;
+}
+html.is-mobile .hud-left { width: 100% !important; display: flex !important; justify-content: center !important; }
+html.is-mobile .hud-center { display: none !important; }
+html.is-mobile .hud-right {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)) !important;
+  gap: 6px !important;
+}
+html.is-mobile .hud-btn {
+  padding: 8px 4px !important;
+  font-size: 9px !important;
+  min-height: 44px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 2px !important;
+}
+html.is-mobile .hud-btn-glyph { font-size: 14px !important; margin-right: 0 !important; }
+/* En is-mobile, .hud-right es un grid y cada hijo directo ocupa una celda. El
+   wrapper .hud-sections (CLIP+DISP) sería UNA sola celda → los dos botones
+   quedarían apretados a media celda frente a SCAN/LOG/QR/CONF. Con display:contents
+   el wrapper desaparece y CLIP/DISP vuelven a ser celdas propias, parejas con el
+   resto. El :not([hidden]) es clave: sin él, este !important le ganaría al
+   .hud-sections[hidden]{display:none} y en Android reaparecerían los botones. */
+html.is-mobile .hud-sections:not([hidden]) { display: contents !important; }
+/* SPEC-shell: el switch héroe CONSERVA la clase vieja hud-sections, pero ya NO es
+   el wrapper chico CLIP|DISP dentro de .hud-right — es el eje central del hud, con
+   su "pozo de vidrio". Las dos reglas is-mobile de arriba (el display:contents que
+   disolvía el wrapper viejo, y el .hud-btn column/9px) lo desarmarían. Se re-afirma
+   su caja y sus segmentos. Sólo aplica a un desktop NO-Android con la ventana
+   angosta o táctil (en Android el switch queda [hidden] y esto no lo toca). Mismo
+   peso que la regla de arriba pero va después → gana; los segmentos usan !important
+   para vencer al .hud-btn de mobile (que también es !important). */
+html.is-mobile .app-switch:not([hidden]) {
+  display: flex !important;
+  width: 100% !important;
+}
+html.is-mobile .app-switch .hud-section-btn {
+  flex: 1 1 0 !important;
+  flex-direction: row !important;
+  padding: 10px 12px !important;
+  font-size: 12px !important;
+  min-height: 44px !important;
+}
+
+html.is-mobile .grid {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  gap: 10px !important;
+  padding: 10px !important;
+}
+
+html.is-mobile .peers {
+  max-height: 50vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+html.is-mobile .peer-list { flex: 1 !important; overflow-y: auto !important; }
+
+html.is-mobile .peer-name-row {
+  flex-wrap: nowrap !important;
+}
+html.is-mobile .composer { flex: 1 !important; min-height: 280px !important; }
+html.is-mobile .send-btn { flex: 1 1 100% !important; order: 99 !important; }
+
+html.is-mobile .modal,
+html.is-mobile .settings-modal-wide,
+html.is-mobile .log-modal {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+}
+html.is-mobile .modal-actions {
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+html.is-mobile .modal-btn { width: 100% !important; min-height: 48px !important; }
+
+/* CRITICAL FIX: kill all min-widths on mobile so children of flex/grid
+   containers actually shrink to fit. Without this, the desktop
+   `.hud-btn { min-width: 110px }`, `.mode-btn`, textareas etc. force
+   their parents wider than the viewport, and `overflow-x:hidden` clips
+   the right side of everything — which is exactly the symptom seen on
+   the Samsung A16 phone screenshot. */
+html.is-mobile * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+/* Re-allow the modal/backdrop to be full-viewport (the rule above
+   would have capped them at parent width). */
+html.is-mobile .modal-backdrop,
+html.is-mobile .modal,
+html.is-mobile .settings-modal-wide,
+html.is-mobile .log-modal {
+  max-width: 100vw !important;
+  width: 100vw !important;
+}
+/* Buttons specifically: allow text to wrap so a small column can still
+   fit the label instead of clipping it. */
+html.is-mobile .hud-btn,
+html.is-mobile .mode-btn,
+html.is-mobile .filter-btn,
+html.is-mobile .modal-btn {
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+/* Logo subtitle on phones — let it wrap or hide it instead of bleeding
+   off the right edge. */
+html.is-mobile .logo-sub {
+  display: none !important;
+}
+/* Hard clamp the html/body width to the viewport. Some Android WebView
+   versions ignore `overflow-x:hidden` on body but respect a width
+   constraint with !important. */
+html.is-mobile,
+html.is-mobile body {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  overflow-x: hidden !important;
+}
+/* Textarea/inputs: never overflow horizontally. */
+html.is-mobile textarea,
+html.is-mobile input,
+html.is-mobile .compose-area,
+html.is-mobile .text-input {
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* ==========================================================================
+   MOBILE LAYOUT — vertical scroll fix (v0.10.1 -> v0.11.0)
+   The desktop .app uses `height: 100vh` + `display: grid` which prevents
+   the page from growing when content overflows. On mobile we switch to
+   a flow layout that lets the WHOLE PAGE scroll vertically.
+   ========================================================================== */
+html.is-mobile body {
+  height: auto !important;
+  min-height: 100vh !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+}
+html.is-mobile .app {
+  display: flex !important;
+  flex-direction: column !important;
+  height: auto !important;
+  min-height: 100vh !important;
+  overflow-y: visible !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+/* Android edge-to-edge: status bar (top) and gesture bar (bottom) sit
+   under our sticky HUD/footer. Pad each with the OS-provided insets so
+   no content slides under the system chrome. */
+html.is-mobile .hud {
+  padding-top: calc(10px + env(safe-area-inset-top, 0)) !important;
+  padding-left: calc(12px + env(safe-area-inset-left, 0)) !important;
+  padding-right: calc(12px + env(safe-area-inset-right, 0)) !important;
+}
+html.is-mobile .status-strip {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0)) !important;
+  padding-left: calc(10px + env(safe-area-inset-left, 0)) !important;
+  padding-right: calc(10px + env(safe-area-inset-right, 0)) !important;
+}
+html.is-mobile .grid {
+  height: auto !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+}
+/* Peers card: grows with content. Internal scroll only if absurdly tall
+   (>60 peers). Otherwise the whole page scrolls. */
+html.is-mobile .peers {
+  max-height: none !important;
+  height: auto !important;
+}
+html.is-mobile .peer-list {
+  overflow-y: visible !important;
+  max-height: none !important;
+}
+/* Composer: grows with file queue. */
+html.is-mobile .composer {
+  height: auto !important;
+  min-height: 0 !important;
+}
+html.is-mobile .file-queue {
+  max-height: 40vh !important;
+  overflow-y: auto !important;
+}
+
+/* ---- Settings rows: label + control inline (compact) ---- */
+html.is-mobile .settings-row {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 12px 0 !important;
+  flex-wrap: wrap !important;
+}
+html.is-mobile .settings-label {
+  flex: 1 1 auto !important;
+  min-width: 120px !important;
+  font-size: 10px !important;
+}
+html.is-mobile .settings-control {
+  flex: 0 0 auto !important;
+}
+/* The DATA DIR row + UPDATE row need vertical layout (long value/multi-button). */
+html.is-mobile .settings-info {
+  flex-direction: column !important;
+  align-items: flex-start !important;
+}
+html.is-mobile .settings-info .settings-value {
+  font-size: 10px !important;
+  /* Break only at natural boundaries (`/`, `-`, spaces) so long paths
+     wrap as multi-character chunks instead of one-letter-per-line. */
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
+  line-height: 1.4 !important;
+  max-width: 100% !important;
+  display: block !important;
+}
+
+/* Settings sections / rows marked as desktop-only via .desktop-only on
+   the wrapper. We hide them when running under html.is-mobile (added
+   by the inline script in index.html based on UA / touch / width).
+   They stay visible on Windows. */
+html.is-mobile .desktop-only { display: none !important; }
+
+/* Clipboard sync is desktop-only by design (Android 10+ background
+   clipboard restrictions make it half-broken, and image-paste needs
+   a JNI bridge that lives in v0.14+). Hide every clipboard-sync
+   surface on Android: the per-peer toggle on cards and the toggle
+   row inside the peer-details modal. */
+html.is-mobile .clip-toggle,
+html.is-mobile #peer-details-clip-row {
+  display: none !important;
+}
+
+/* DOWNLOAD FOLDER specifically (and any future long-path value sitting
+   inside a .settings-control flex row). The default `.settings-value`
+   base rule uses `word-break: break-all` which produces 1-char columns
+   inside a narrow flex slot — these overrides force the whole row to
+   wrap so the path takes a full line with natural-boundary breaks. */
+html.is-mobile .settings-row:has(#settings-download-dir) {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+html.is-mobile .settings-control:has(> #settings-download-dir) {
+  flex-wrap: wrap !important;
+  align-items: center !important;
+}
+html.is-mobile #settings-download-dir {
+  flex: 1 1 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  font-size: 10px !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
+  line-height: 1.4 !important;
+  display: block !important;
+}
+
+/* Settings → UPDATES — redesigned layout (v0.15.0). The row is a
+   single column container with two stacked blocks; each block uses
+   its own internal flow. No nested flexbox + no inline width fights.
+   Works on desktop + mobile because everything just stacks naturally. */
+.updates-row {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 12px !important;
+}
+.updates-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--neon-cyan-soft);
+  background: rgba(0, 240, 255, 0.04);
+}
+.updates-block.updates-action {
+  border-color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.09);
+  box-shadow: 0 0 12px var(--neon-cyan-glow);
+}
+.updates-block[hidden] { display: none; }
+.updates-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.updates-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+#settings-update-status {
+  font-size: 13px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.updates-banner {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 5px var(--neon-cyan-glow);
+  word-break: normal;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.updates-btn {
+  width: 100%;
+  min-height: 40px;
+  font-size: 12px;
+  letter-spacing: 2px;
+}
+.updates-btn.accent {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+/* Make sure the global mobile rules don't squeeze these into the
+   1-char-column trap we keep hitting. */
+html.is-mobile .updates-block,
+html.is-mobile .updates-line,
+html.is-mobile .updates-banner,
+html.is-mobile #settings-update-status,
+html.is-mobile .updates-btn {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
+}
+html.is-mobile #settings-update-action {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+
+/* ---- Status strip (bottom HUD): compact, single row, no overflow ---- */
+html.is-mobile .status-strip {
+  flex-wrap: wrap !important;
+  padding: 8px 10px !important;
+  gap: 8px 12px !important;
+  font-size: 9px !important;
+  position: sticky !important;
+  bottom: 0 !important;
+  background: rgba(4, 8, 18, 0.92) !important;
+  backdrop-filter: blur(8px) !important;
+  border-top: 1px solid var(--neon-cyan-soft) !important;
+  z-index: 150 !important;
+}
+html.is-mobile .status-strip .status-item:nth-child(4) {
+  display: none !important; /* hide CLACK toggle on phones — too noisy */
+}
+html.is-mobile .status-text {
+  font-size: 9px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 60vw !important;
+}
+html.is-mobile .status-key { font-size: 8px !important; }
+html.is-mobile .status-val { font-size: 9px !important; }
+
+
+/* ==========================================================================
+   RUNTIME LOG MODAL
+   ========================================================================== */
+.log-modal {
+  width: min(1040px, 96vw);
+  max-height: 92vh;
+}
+
+.log-body {
+  flex: 1;
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+  background: #050a10;
+  border-top: 1px solid var(--neon-cyan-soft);
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+
+.log-pane {
+  flex: 1;
+  margin: 0;
+  padding: 12px 16px;
+  overflow-y: auto;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #b8d8e0;
+  white-space: pre;
+  background: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neon-cyan) #0a1218;
+}
+
+.log-pane::-webkit-scrollbar { width: 10px; height: 10px; }
+.log-pane::-webkit-scrollbar-track { background: #0a1218; }
+.log-pane::-webkit-scrollbar-thumb {
+  background: var(--neon-cyan);
+  box-shadow: 0 0 6px var(--neon-cyan-glow);
+}
+
+.log-pane .lvl-err  { color: #ff4d6b; text-shadow: 0 0 4px rgba(255,77,107,0.4); }
+.log-pane .lvl-warn { color: #ffc848; }
+.log-pane .lvl-info { color: #b8d8e0; }
+.log-pane .lvl-time { color: #5d7780; }
+
+.log-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   v0.8.6 — PEER CARD TOGGLES (★ FAV / 📋 CLIP SYNC) + ICON PICKER + BANNER
+   ========================================================================== */
+
+/* The status row now holds both the dot+label AND the two clickable
+   toggles, pushed to the right. */
+.peer-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.peer-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.peer-toggle {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 14, 30, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s, color 0.16s,
+              box-shadow 0.16s, transform 0.12s;
+  -webkit-text-stroke: 0;
+  filter: grayscale(0.9);
+  opacity: 0.55;
+}
+
+.peer-toggle:hover {
+  opacity: 0.9;
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.peer-toggle:active {
+  transform: translateY(0) scale(0.94);
+}
+
+.peer-toggle.fav-toggle.active {
+  background: rgba(255, 179, 71, 0.12);
+  border-color: var(--neon-amber);
+  color: var(--neon-amber);
+  box-shadow: 0 0 12px rgba(255, 179, 71, 0.55),
+              inset 0 0 8px rgba(255, 179, 71, 0.15);
+  filter: none;
+  opacity: 1;
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.7);
+}
+
+.peer-toggle.clip-toggle.active {
+  background: rgba(0, 240, 255, 0.10);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: 0 0 12px var(--neon-cyan-glow),
+              inset 0 0 8px rgba(0, 240, 255, 0.15);
+  filter: none;
+  opacity: 1;
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+/* Offline peers: dim the toggles so they don't compete with the dot. */
+.peer-item[data-status="offline"] .peer-toggle {
+  opacity: 0.3;
+}
+.peer-item[data-status="offline"] .peer-toggle.active {
+  opacity: 0.75;
+}
+
+/* The peer-name row now has all the space the badges used to eat.
+   Truncate gracefully if the name is too long. */
+.peer-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ICON PICKER inside the peer details modal ------------------------------ */
+.icon-picker-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0 18px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+  margin-bottom: 14px;
+}
+
+.icon-current {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.06);
+  box-shadow: 0 0 18px var(--neon-cyan-glow),
+              inset 0 0 14px rgba(0, 240, 255, 0.08);
+}
+.icon-current svg,
+.icon-current img.peer-item-img { width: 48px; height: 48px; object-fit: contain; }
+
+.icon-picker {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.icon-pick {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at center, rgba(255, 200, 72, 0.06), rgba(8, 14, 30, 0.5) 75%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.icon-pick svg,
+.icon-pick img.peer-item-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 4px rgba(255, 200, 72, 0.5))
+          drop-shadow(0 0 1px rgba(0, 0, 0, 0.4));
+}
+.icon-pick:hover {
+  border-color: var(--neon-cyan-soft);
+  color: var(--neon-cyan);
+  transform: translateY(-1px);
+}
+.icon-pick.active {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.12);
+  box-shadow: 0 0 10px var(--neon-cyan-glow);
+}
+
+.icon-picker-hint {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+  opacity: 0.7;
+}
+
+.forget-hint {
+  margin: 16px 0 0;
+  font-size: 10px;
+  letter-spacing: 1px;
+  line-height: 1.55;
+  color: var(--text-mute);
+  opacity: 0.75;
+}
+
+/* BACKEND ERROR BANNER --------------------------------------------------- */
+/* Stack de banners de nivel app: contenedor fijo arriba de todo. Los banners
+   (backend-error rojo, auto-revert de displays ámbar) son hijos EN FLUJO, así se
+   apilan verticalmente sin superponerse — el spec pedía que no chocaran.
+   pointer-events:none deja pasar los clics por los márgenes; cada banner los
+   reactiva en su inner. */
+.app-banners {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.backend-banner {
+  pointer-events: none;
+}
+
+.backend-banner[hidden] { display: none !important; }
+
+.backend-banner-inner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 2px solid #ff4d6b;
+  background: linear-gradient(180deg, rgba(60, 0, 12, 0.96), rgba(40, 0, 8, 0.92));
+  box-shadow: 0 4px 24px rgba(255, 77, 107, 0.35);
+  font-family: var(--font-display);
+  animation: banner-in 0.3s ease-out;
+}
+
+.backend-banner[data-level="warn"] .backend-banner-inner {
+  border-bottom-color: #ffc848;
+  background: linear-gradient(180deg, rgba(60, 44, 0, 0.95), rgba(40, 30, 0, 0.9));
+  box-shadow: 0 4px 24px rgba(255, 200, 72, 0.3);
+}
+
+@keyframes banner-in {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.backend-banner-glyph {
+  font-size: 28px;
+  line-height: 1;
+  color: #ff4d6b;
+  text-shadow: 0 0 12px rgba(255, 77, 107, 0.7);
+  flex-shrink: 0;
+}
+.backend-banner[data-level="warn"] .backend-banner-glyph {
+  color: #ffc848;
+  text-shadow: 0 0 12px rgba(255, 200, 72, 0.6);
+}
+
+.backend-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.backend-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #ff4d6b;
+  text-shadow: 0 0 6px rgba(255, 77, 107, 0.5);
+}
+.backend-banner[data-level="warn"] .backend-banner-title {
+  color: #ffc848;
+  text-shadow: 0 0 6px rgba(255, 200, 72, 0.5);
+}
+
+.backend-banner-msg {
+  margin-top: 3px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: #f5dde2;
+  word-break: break-word;
+}
+
+.backend-banner-close {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f5dde2;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.backend-banner-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* --- Banner GLOBAL del auto-revert (Displays v2 Fase 2) ------------------- */
+/* Molde tomado de .backend-banner pero en ÁMBAR (misma paleta que la vieja barra
+   de pending del modal): no es un error, es una decisión que vence sola. Vive en
+   el stack de banners, visible desde cualquier sección — aunque estés en
+   Clipboard, ves que un cambio de monitores espera tu OK. */
+.displays-banner { pointer-events: none; }
+.displays-banner[hidden] { display: none !important; }
+
+.displays-banner-inner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 2px solid var(--neon-amber);
+  background: linear-gradient(180deg, rgba(60, 44, 0, 0.96), rgba(40, 30, 0, 0.92));
+  box-shadow: 0 4px 24px rgba(255, 179, 71, 0.3);
+  animation: banner-in 0.3s ease-out;
+}
+
+.displays-banner-glyph {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--neon-amber);
+  text-shadow: 0 0 10px rgba(255, 179, 71, 0.5);
+  flex-shrink: 0;
+}
+
+.displays-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--neon-amber);
+  text-shadow: 0 0 6px rgba(255, 179, 71, 0.35);
+}
+
+.displays-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Incoming files modal — thumbnails next to each file name */
+.incoming-file-li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+}
+.incoming-thumb {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  background: rgba(0, 240, 255, 0.05);
+  border: 1px solid var(--neon-cyan-soft);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: var(--neon-cyan);
+}
+.incoming-thumb-empty {
+  opacity: 0.6;
+}
+.incoming-file-li .file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.incoming-file-li .file-size {
+  flex-shrink: 0;
+  color: var(--text-mute);
+  font-size: 11px;
+}
+
+/* Settings modal — section headers */
+.settings-modal-wide {
+  width: min(640px, 96vw);
+  max-height: 90vh;
+}
+.settings-body {
+  overflow-y: auto;
+}
+
+/* Settings — collapsible groups (T5): native <details>/<summary>, no JS (CSP-safe).
+   <summary> keeps the old section-header look plus a rotating disclosure chevron. */
+.settings-group {
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+.settings-group:last-of-type {
+  border-bottom: none;
+}
+.settings-group > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 18px 0 8px;
+  padding: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+}
+.settings-group > summary::-webkit-details-marker { display: none; }
+.settings-group > summary::after {
+  content: '▾';
+  font-size: 11px;
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+.settings-group:not([open]) > summary::after {
+  transform: rotate(-90deg);
+}
+.settings-group:first-of-type > summary {
+  margin-top: 0;
+}
+
+/* QR pairing modal */
+.qr-modal { width: min(520px, 96vw); }
+.qr-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+.qr-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 3px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.qr-tab:hover { color: var(--neon-cyan); }
+.qr-tab.active {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan-glow);
+  border-bottom-color: var(--neon-cyan);
+}
+.qr-pane[hidden] { display: none !important; }
+.qr-canvas {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #050a14;
+  border: 1px solid var(--neon-cyan-soft);
+  margin: 0 0 12px;
+}
+.qr-canvas svg {
+  width: 280px;
+  height: 280px;
+  display: block;
+}
+.qr-hint {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--text-mute);
+  line-height: 1.5;
+  margin: 6px 0 12px;
+}
+.qr-paste {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 8px 10px;
+}
+
+/* ==========================================================================
+   FX GOVERNANCE (fase 0)
+   Every decorative looping animation is assigned ONLY here, gated behind
+   prefers-reduced-motion. One-shot transitions (modal-in, alert-in,
+   banner-in, backdrop-in) stay on their base rules — they don't loop.
+   ========================================================================== */
+
+/* The scanline is only meant to be seen mid-sweep (its keyframes rest at
+   opacity 0). Without the animation it would sit as a permanent bright
+   line, so under reduced motion it must disappear entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .scanline { display: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .horizon-floor::before          { animation: grid-scroll 4s linear infinite; }
+  .scanline                       { animation: scan-drop 7.5s linear infinite; }
+  .logo-mark                      { animation: pulse-soft 2.4s ease-in-out infinite; }
+  .card-pulse                     { animation: dot-pulse 1.4s ease-in-out infinite; }
+  .peer-loading                   { animation: pulse-soft 1.6s ease-in-out infinite; }
+  .peer-status.online .status-dot { animation: dot-pulse 1.8s ease-in-out infinite; }
+  .dropzone-icon                  { animation: float 3s ease-in-out infinite; }
+  .status-item .status-dot        { animation: dot-pulse 1.6s ease-in-out infinite; }
+}
+
+/* Window hidden/minimized → freeze every animation (class set from JS
+   on visibilitychange). All animations in this app are decorative, so
+   the blanket pause is safe. */
+html.fx-paused *,
+html.fx-paused *::before,
+html.fx-paused *::after {
+  animation-play-state: paused !important;
+}
+
+/* User toggle in Settings (persisted in localStorage as fx=off). */
+html.fx-off .bg-horizon,
+html.fx-off .scanline,
+html.fx-off .noise { display: none; }
+html.fx-off .horizon-floor::before,
+html.fx-off .logo-mark,
+html.fx-off .card-pulse,
+html.fx-off .peer-loading,
+html.fx-off .peer-status.online .status-dot,
+html.fx-off .dropzone-icon,
+html.fx-off .status-item .status-dot { animation: none !important; }
+
+
+/* ===========================================================================
+   DISPLAYS (SPEC-displays, Fase 2 — lectura + attach/detach con red)
+   Espeja el molde del modal LOG y la fila de peers. Paleta: las variables de
+   :root, sin colores sueltos.
+   =========================================================================== */
+/* SIN ESTO EL BOTON DISP NO SE OCULTA EN ANDROID.
+   El `hidden` del HTML se apoya en la regla `[hidden]{display:none}` de la hoja
+   del navegador, y CUALQUIER declaracion de `display` del autor le gana (origen
+   autor > origen user-agent, sin importar especificidad). `.hud-btn` declara
+   `display:inline-flex`, y `html.is-mobile .hud-btn` encima usa `!important` —
+   por eso esta regla tambien lo necesita. Sin ella, main.js revela el boton en
+   Windows pero NUNCA logra esconderlo en Android: se ve, se toca, y el invoke
+   devuelve el error de "solo existe en Windows".
+   El codebase ya tropezo con lo mismo: ver .backend-banner[hidden] y
+   .qr-pane[hidden]. */
+.hud-btn[hidden] { display: none !important; }
+
+/* Displays v2 Fase 2: displays dejó de ser un modal y es una sección a pantalla
+   completa. .displays-shell espeja el molde de .modal (mismo borde/sombra neón)
+   pero ocupa todo el alto de su celda en vez de flotar centrado. */
+.displays-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card-hi);
+  border: 1px solid var(--neon-cyan);
+  box-shadow:
+    0 0 48px var(--neon-cyan-glow),
+    inset 0 0 24px var(--neon-cyan-soft); /* SPEC-shell: token en vez de cyan crudo → vira con la app */
+}
+
+.displays-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.display-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+}
+
+.display-item.is-detached {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.display-glyph {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--neon-cyan);
+  flex: 0 0 auto;
+}
+
+.display-item.is-detached .display-glyph {
+  color: var(--text-dim);
+}
+
+.display-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.display-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.display-meta {
+  font-size: 11px;
+  color: var(--text-mute);
+  display: flex;
+  gap: 6px;
+}
+
+.display-sep { color: var(--text-dim); }
+
+.display-badges {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.display-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  letter-spacing: 1.5px;
+}
+
+.display-badge.active {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+
+.display-badge.primary {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+  background: rgba(255, 43, 214, 0.06);
+}
+
+.display-badge.detached {
+  border-color: var(--neon-cyan-soft);
+  color: var(--text-dim);
+  background: transparent;
+}
+
+.displays-empty {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+/* --- Fase 2: el boton ATTACH/DETACH de cada fila ------------------------- */
+.display-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Ancho fijo: ATTACH y DETACH tienen distinto largo y la fila no puede saltar
+   cada vez que un monitor cambia de estado. */
+.display-toggle-btn {
+  min-width: 86px;
+  text-align: center;
+}
+
+/* ★ primario (Displays v2, Fase 1): magenta como el badge PRIMARY, para que se
+   lea "esto lo hace primario". Se esconde en la fila apagada o ya primaria. */
+.display-primary-btn {
+  min-width: 92px;
+  text-align: center;
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+}
+.display-primary-btn:hover {
+  background: rgba(255, 43, 214, 0.08);
+}
+.display-primary-btn[hidden] {
+  display: none !important;
+}
+
+/* Un boton apagado tiene que LEERSE apagado: es el unico aviso de que ese
+   monitor no se puede tocar (es el ultimo activo, o hay un cambio pendiente).
+   Scoped al modal de displays para no tocar el resto de la app. */
+.displays-shell .modal-btn:disabled,
+.displays-shell .modal-btn:disabled:hover {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: transparent;
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+  text-shadow: none;
+  box-shadow: none;
+}
+
+/* La vieja barra de confirmación in-modal (.displays-pending*) se fue al banner
+   GLOBAL del auto-revert (.displays-banner*, arriba, cerca de .backend-banner)
+   en la Fase 2. Se borró de acá para no dejar CSS muerto. */
+
+/* Ventana angosta: la fila ya no entra en una linea con el boton, asi que el
+   boton baja en vez de aplastar el nombre del monitor. */
+@media (max-width: 560px) {
+  .display-item { flex-wrap: wrap; }
+  .display-actions { margin-left: auto; }
+}
+
+/* Cartel de datos falsos: tiene que gritar, para que nadie confunda una demo
+   con la maquina real. */
+.displays-mock-warning {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--neon-amber);
+  border: 1px dashed var(--neon-amber);
+  padding: 6px 8px;
+  margin: 0 0 10px 0;
+}
+
+/* ===========================================================================
+   DISPLAYS — Fase 3: pestañas, perfiles y ajustes
+   =========================================================================== */
+
+/* --- Pestañas ------------------------------------------------------------ */
+.displays-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+
+.displays-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.displays-tab:hover { color: var(--text-bright); }
+
+.displays-tab.is-active {
+  color: var(--neon-cyan);
+  border-bottom-color: var(--neon-cyan);
+}
+
+/* Cada pane ocupa el body; solo se ve el activo. Mismo motivo de !important que
+   .hud-btn[hidden]: un `display` del autor le gana al [hidden] del user-agent. */
+.displays-pane[hidden] { display: none !important; }
+
+/* --- Perfiles ------------------------------------------------------------ */
+.displays-profile-save {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.displays-profile-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.displays-profile-name:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+.displays-profiles-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.displays-profile-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+}
+
+.displays-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.displays-profile-name-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.displays-profile-summary {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.displays-profile-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Displays v2, Fase 3: dropdown de salida de audio por perfil ("Sonido a:").
+   Reusa .displays-setting-select (borde cyan, mono) pero achicado para la fila. */
+.displays-profile-audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.displays-profile-audio-label {
+  font-size: 11px;
+  color: var(--text-mute);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.displays-profile-audio .displays-profile-audio-select {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+/* Displays v2, Fase 4: editor de escena por perfil (acciones de entrada/salida). */
+.displays-profile-scene {
+  margin-top: 3px;
+}
+.displays-scene-toggle {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-mute);
+  background: transparent;
+  border: 1px solid var(--grid-line-hot);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.displays-scene-toggle:hover:not(:disabled) {
+  color: var(--text-bright);
+  border-color: var(--neon-cyan-dim);
+}
+.displays-scene-toggle.has-scene {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan-dim);
+}
+.displays-scene-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.displays-scene-editor {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--grid-line);
+  border-radius: 5px;
+  background: var(--neon-cyan-soft);
+}
+.displays-scene-col {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.displays-scene-col-head {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.displays-scene-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.displays-scene-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.displays-scene-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--grid-line-hot);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.displays-scene-chip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-bright);
+}
+.displays-scene-chip-btn {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.displays-scene-chip-btn:hover:not(:disabled) {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan-dim);
+}
+.displays-scene-chip-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.displays-scene-add {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.displays-scene-preset {
+  font-size: 11px;
+  padding: 2px 6px;
+  width: 100%;
+}
+.displays-scene-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+.displays-scene-input {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  padding: 3px 6px;
+  color: var(--text-bright);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--neon-cyan-dim);
+  border-radius: 4px;
+}
+textarea.displays-scene-input {
+  resize: vertical;
+  min-height: 40px;
+}
+.displays-scene-input:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+.displays-scene-form-row {
+  display: flex;
+  gap: 6px;
+}
+
+/* Displays v2, Fase 1: botón de atajo por perfil. Neutro sin asignar; cyan con
+   una combinación puesta; magenta y latiendo mientras se está capturando. */
+.displays-profile-shortcut {
+  min-width: 96px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.displays-profile-shortcut.has-shortcut {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+.displays-profile-shortcut.capturing {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+  animation: displays-shortcut-pulse 1s ease-in-out infinite;
+}
+@keyframes displays-shortcut-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* --- Banner de confirmación (pisar / borrar un perfil) ------------------- */
+/* Ámbar como la barra de auto-revert: es una decisión destructiva que espera tu
+   OK. Tus perfiles son tus datos; nada se pisa sin pasar por acá. */
+.displays-confirm-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--neon-amber);
+  background: rgba(255, 179, 71, 0.08);
+}
+.displays-confirm-banner[hidden] { display: none !important; }
+
+.displays-confirm-text {
+  flex: 1 1 160px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--neon-amber);
+}
+
+.displays-confirm-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* --- Ajustes ------------------------------------------------------------- */
+.displays-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+}
+
+.displays-setting-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+}
+
+.displays-setting-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.displays-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.displays-setting-input {
+  width: 84px;
+  background: var(--bg-deep, var(--bg-card));
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  text-align: right;
+}
+
+.displays-setting-input:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+/* Displays v2, Fase 1: el <select> del perfil de arranque, mismo lenguaje que el
+   input del plazo. */
+.displays-setting-select {
+  min-width: 180px;
+  max-width: 100%;
+  background: var(--bg-deep, var(--bg-card));
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+}
+.displays-setting-select:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+.displays-setting-unit {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-mute);
+}
+
+/* --- Lienzo de arrastre -------------------------------------------------- */
+.displays-canvas-hint {
+  font-size: 11px;
+  color: var(--text-mute);
+  margin: 0 0 10px 0;
+}
+
+.displays-canvas {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+  overflow: hidden;
+  /* La rejilla de puntos da referencia visual sin robar protagonismo. */
+  background-image: radial-gradient(var(--neon-cyan-soft) 1px, transparent 1px);
+  background-size: 16px 16px;
+  touch-action: none;
+}
+
+.displays-canvas-monitor {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px;
+  overflow: hidden;
+  background: var(--neon-cyan-soft); /* SPEC-shell: token → vira con la app */
+  border: 1px solid var(--neon-cyan);
+  color: var(--text-bright);
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow 0.1s;
+}
+
+.displays-canvas-monitor:hover {
+  box-shadow: 0 0 8px var(--neon-cyan-glow); /* SPEC-shell: token → vira con la app */
+}
+
+.displays-canvas-monitor.is-dragging {
+  cursor: grabbing;
+  z-index: 5;
+  box-shadow: 0 0 12px var(--neon-cyan-glow); /* SPEC-shell: token → vira con la app */
+}
+
+.displays-canvas-monitor.is-primary {
+  border-color: var(--neon-magenta);
+  background: rgba(255, 43, 214, 0.10);
+}
+
+.displays-canvas-label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.displays-canvas-meta {
+  font-size: 9px;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
+.displays-canvas-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+/* ==========================================================================
+   SHELL "DOS APPS EN UNA" (SPEC-shell) — switch héroe, barras por app,
+   tematización de Displays. Todo chrome NUEVO: usa --app-accent (cyan por
+   defecto, violeta en Displays vía body[data-app]).
+   ========================================================================== */
+
+/* --- Top bar: hud + barras por app, apilados ------------------------------ */
+.topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* El switch va al centro del hud; logo a la izquierda, ⚙ APP a la derecha. Se
+   fijan las columnas para que, cuando el switch está oculto (Android), ⚙ APP no
+   se corra al centro. */
+.hud-left  { grid-column: 1; }
+.hud-right { grid-column: 3; }
+
+/* --- Switch héroe CLIPBOARD / DISPLAYS ------------------------------------ */
+/* Conserva id/clase hud-sections (el reveal de Android y hudSectionBtns siguen
+   andando). "Vidrio profundo": pozo hundido (inset) + segmento activo que flota
+   y prende en SU color. Cada segmento con color fijo por --seg (aunque apagado).
+   Gana en especificidad al .hud-section-btn.is-active cyan de más arriba. */
+.app-switch {
+  display: flex;
+  gap: 0;
+  padding: 4px;
+  background: rgba(3, 6, 16, 0.72);
+  border: 1px solid var(--app-accent-soft);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+.app-switch .hud-section-btn[data-section="clipboard"] {
+  --seg: var(--neon-cyan);
+  --seg-glow: var(--neon-cyan-glow);
+  --seg-soft: var(--neon-cyan-soft);
+}
+.app-switch .hud-section-btn[data-section="displays"] {
+  --seg: #b45cff;
+  --seg-glow: rgba(180, 92, 255, 0.5);
+  --seg-soft: rgba(180, 92, 255, 0.16);
+}
+.app-switch .hud-section-btn {
+  padding: 10px 26px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-mute);
+  transition: color 0.18s ease-out, background 0.18s ease-out, box-shadow 0.18s ease-out;
+}
+.app-switch .hud-section-btn .hud-btn-glyph {
+  color: var(--seg);
+  text-shadow: 0 0 8px var(--seg-glow);
+  opacity: 0.85;
+}
+.app-switch .hud-section-btn:hover {
+  color: var(--text-bright);
+  border-color: var(--seg-soft);
+}
+.app-switch .hud-section-btn.is-active {
+  color: var(--seg);
+  background: linear-gradient(180deg, var(--bg-card-hi), rgba(10, 16, 34, 0.6));
+  border-color: var(--seg);
+  box-shadow: 0 0 18px var(--seg-glow), inset 0 1px 0 rgba(230, 251, 255, 0.08);
+  text-shadow: 0 0 12px var(--seg-glow);
+}
+.app-switch .hud-section-btn.is-active .hud-btn-glyph { opacity: 1; }
+
+/* --- Barras de herramientas por app --------------------------------------- */
+/* Solo una visible; swap por body[data-app] (mismo dato que tiñe el marco). En
+   el boot (sin data-app) se ve Clipboard. */
+.app-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 14px;
+  background: rgba(4, 8, 20, 0.45);
+  border: 1px solid var(--app-accent-soft);
+}
+.app-toolbar[data-bar="displays"] { display: none; }
+body[data-app="displays"] .app-toolbar[data-bar="clipboard"] { display: none; }
+body[data-app="displays"] .app-toolbar[data-bar="displays"] { display: flex; }
+
+.toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+.toolbar-status .hud-btn-glyph {
+  color: var(--app-accent);
+  text-shadow: 0 0 8px var(--app-accent-glow);
+}
+.toolbar-status #displays-count { color: var(--text-bright); }
+
+/* --- ⚙ APP: botón neutro (ni cyan ni violeta) ----------------------------- */
+.hud-btn.app-settings-btn .hud-btn-glyph {
+  color: var(--text-mute);
+  text-shadow: none;
+}
+.hud-btn.app-settings-btn:hover {
+  border-color: var(--text-mute);
+  color: var(--text-bright);
+  box-shadow: none;
+}
+.hud-btn.app-settings-btn:hover .hud-btn-glyph { color: var(--text-bright); }
+
+/* --- Tematización de Displays: cyan → violeta, scopeada a #displays-section -- */
+/* Las custom properties heredan por posición en el DOM: redefinir los tokens
+   --neon-cyan acá vira TODO lo que los usa dentro de la sección (incluido lo que
+   reusa de las clases modal y card-corners) sin reescribir regla por regla.
+   Fuera de la sección, --neon-cyan queda intacto → Clipboard y los demás modales
+   siguen cyan. El banner #displays-pending (ámbar) vive en #app-banners, fuera
+   de este scope: no lo alcanza. */
+#displays-section {
+  --neon-cyan: var(--app-accent);
+  --neon-cyan-dim: var(--app-accent-dim);
+  --neon-cyan-glow: var(--app-accent-glow);
+  --neon-cyan-soft: var(--app-accent-soft);
+}
+/* Los .modal-btn que Displays reusa tienen fondos con cyan CRUDO (no token):
+   overrides scopeados para que también viren. */
+#displays-section .modal-btn:hover { background: var(--app-accent-soft); }
+#displays-section .modal-btn.accept { box-shadow: inset 0 0 12px var(--app-accent-soft); }
+#displays-section .modal-btn.accept:hover { background: var(--app-accent-soft); }
+/* El único sound-toggle dentro de la sección (atajos, pestaña AJUSTES) tiene el
+   relleno del riel con cyan CRUDO (no token, styles.css .sound-track base + :checked)
+   → el override de tokens no lo alcanza. Se vira el relleno aparte para que el
+   control quede 100% violeta (borde/thumb/glow ya viran por token). */
+#displays-section .sound-track,
+#displays-section .sound-toggle input:checked + .sound-track { background: var(--app-accent-soft); }
+
+/* --- Accesibilidad del chrome nuevo (criterio #8) ------------------------- */
+.hud-btn:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+.app-switch .hud-section-btn:focus-visible { outline-color: var(--seg); }
+.hud-btn.app-settings-btn:focus-visible { outline-color: var(--text-mute); }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-switch .hud-section-btn,
+  .hud-btn { transition: none; }
+}
