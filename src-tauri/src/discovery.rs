@@ -14,6 +14,7 @@ use mdns_sd::{IfKind, ServiceDaemon, ServiceEvent, ServiceInfo};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
@@ -280,6 +281,7 @@ pub fn start(
     let fullnames: FullnameMap = Arc::new(Mutex::new(HashMap::new()));
     let current_ip: Arc<Mutex<String>> = Arc::new(Mutex::new(identity.local_ip.clone()));
     let probe_wake = Arc::new(tokio::sync::Notify::new());
+    let mdns_adapters = Arc::new(AtomicUsize::new(initial_ips.len()));
 
     let initial_fullname = register_self(&daemon, identity, &initial_ips, port)?;
 
@@ -654,6 +656,7 @@ pub fn start(
         let mut identity = identity.clone();
         let bind_port = port;
         let current_ip = current_ip.clone();
+        let mdns_adapters = mdns_adapters.clone();
         let mut ips = initial_ips;
         let mut fullname = initial_fullname;
         tauri::async_runtime::spawn(async move {
@@ -695,12 +698,46 @@ pub fn start(
                 set_mdns_ifaces(&daemon, &diff.gone, false);
                 set_mdns_ifaces(&daemon, &diff.added, true);
                 ips = fresh_ips;
+                mdns_adapters.store(ips.len(), Ordering::Relaxed);
                 match register_self(&daemon, &identity, &ips, bind_port) {
                     Ok(name) => fullname = name,
                     Err(e) => {
                         crate::runtime_log::warn(format!("[net] mDNS re-register failed: {}", e))
                     }
                 }
+            }
+        });
+    }
+
+    // (D) mDNS meter (puesta-a-punto, encargo 01). Once a minute, one log
+    //     line with what the daemon sent and heard in that minute, only if
+    //     there was traffic. The arithmetic lives in `mdns_meter` (tested).
+    {
+        let daemon = daemon.clone();
+        let mdns_adapters = mdns_adapters.clone();
+        tauri::async_runtime::spawn(async move {
+            use std::time::Duration;
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            tick.tick().await; // skip the immediate first tick
+            let mut prev = HashMap::new();
+            loop {
+                tick.tick().await;
+                let metrics = match daemon.get_metrics() {
+                    Ok(rx) => match rx.recv_async().await {
+                        Ok(m) => m,
+                        Err(_) => continue,
+                    },
+                    Err(e) => {
+                        crate::runtime_log::warn(format!("[mdns] get_metrics failed: {}", e));
+                        continue;
+                    }
+                };
+                let adapters = mdns_adapters.load(Ordering::Relaxed);
+                if let Some(t) = crate::mdns_meter::minute_report(&prev, &metrics, adapters) {
+                    crate::runtime_log::info(t.line());
+                }
+                prev = metrics;
             }
         });
     }

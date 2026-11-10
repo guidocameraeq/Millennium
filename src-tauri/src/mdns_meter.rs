@@ -10,7 +10,8 @@
 // multiplied by the adapter count; `respond` is already one per packet. In
 // 0.13 the daemon answers every query it hears (even with an empty packet),
 // so `respond` is also the number of queries heard. Responses received are
-// not counted by the daemon at all.
+// not counted by the daemon at all. It is an estimate: `cache-refresh-addr`
+// counts 2 per hostname (A + AAAA) though both questions share one packet.
 
 use std::collections::HashMap;
 
@@ -65,6 +66,23 @@ pub fn minute_report(
     now: &HashMap<String, i64>,
     adapters: usize,
 ) -> Option<MinuteTraffic> {
-    let _ = (prev, now, adapters, PER_ADAPTER, SINGLE);
-    None
+    let d = |key: &str| delta(prev, now, key);
+    let per_adapter: i64 = PER_ADAPTER.iter().map(|k| d(k)).sum();
+    let single: i64 = SINGLE.iter().map(|k| d(k)).sum();
+    if per_adapter + single == 0 {
+        return None;
+    }
+    let responses = d("respond");
+    let queries = d("browse")
+        + d("resolve-hostname")
+        + d("cache-refresh-ptr")
+        + d("cache-refresh-srv-txt")
+        + d("cache-refresh-addr");
+    Some(MinuteTraffic {
+        sent: per_adapter * adapters as i64 + single,
+        responses,
+        queries,
+        announces: per_adapter - queries + single - responses,
+        adapters,
+    })
 }
