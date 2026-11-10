@@ -159,8 +159,9 @@ function comparar() {
       ok = false;
       continue;
     }
-    const sa = fs.readFileSync(a, 'utf8');
-    const sd = fs.readFileSync(d, 'utf8');
+    // git puede haber pasado "antes" a CRLF al clonar en Windows.
+    const sa = fs.readFileSync(a, 'utf8').replace(/\r\n/g, '\n');
+    const sd = fs.readFileSync(d, 'utf8').replace(/\r\n/g, '\n');
     const err = /id="__errores__"[^>]*>([^<]+)/.exec(sd);
     if (err) {
       console.error('[' + vista + '] hubo un error JS: ' + err[1].split('\n')[0]);
