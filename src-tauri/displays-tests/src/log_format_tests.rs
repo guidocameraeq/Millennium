@@ -111,7 +111,7 @@ fn argumentos_de_llamadas_al_log(src: &str) -> Vec<String> {
             let mut fin = src.len();
             for (j, c) in src[ini..].char_indices() {
                 if en_cadena {
-                    if c == '"' && previo != '\' {
+                    if c == '"' && previo != '\\' {
                         en_cadena = false;
                     }
                 } else if c == '"' {
@@ -125,7 +125,7 @@ fn argumentos_de_llamadas_al_log(src: &str) -> Vec<String> {
                         break;
                     }
                 }
-                previo = if previo == '\' && c == '\' { ' ' } else { c };
+                previo = if previo == '\\' && c == '\\' { ' ' } else { c };
             }
             out.push(src[ini..fin].to_string());
             desde = ini;
@@ -157,7 +157,7 @@ fn contenidos_en_argumentos(args: &str) -> Vec<String> {
     while i < cs.len() {
         let c = cs[i];
         if en_cadena {
-            if c == '\' {
+            if c == '\\' {
                 i += 2;
                 continue;
             }
