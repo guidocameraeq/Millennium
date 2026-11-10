@@ -140,18 +140,31 @@ pub fn startup_diagnostic(
     chosen_ip: &str,
     port: u16,
 ) -> Vec<String> {
+    // IPv6 addresses are not adapters: the OS lists one or more per NIC, the
+    // good Wi-Fi included. They are counted apart so "1 used, 8 discarded"
+    // does not read as if the good adapter had been dropped too.
+    let is_v6 = |why: &crate::net_ifaces::Discard| *why == crate::net_ifaces::Discard::NotIpv4;
+    let ipv6_ignored = choice.discarded.iter().filter(|(_, _, why)| is_v6(why)).count();
+    let discarded: Vec<_> = choice.discarded.iter().filter(|(_, _, why)| !is_v6(why)).collect();
+    let fallback = if choice.used.is_empty() {
+        " (fallback: no adapter passed the rule)"
+    } else {
+        ""
+    };
     let mut lines = vec![format!(
-        "[diag] Millennium v{} · announced ip {} · server port {} · adapters: {} used, {} discarded",
+        "[diag] Millennium v{} · announced ip {}{} · server port {} · adapters: {} used, {} discarded, {} ipv6 addresses ignored",
         one_line(version),
         one_line(chosen_ip),
+        fallback,
         port,
         choice.used.len(),
-        choice.discarded.len()
+        discarded.len(),
+        ipv6_ignored
     )];
     for (name, ip) in &choice.used {
         lines.push(format!("[diag]   adapter '{}' {} -> used", one_line(name), ip));
     }
-    for (name, ip, why) in &choice.discarded {
+    for (name, ip, why) in discarded {
         lines.push(format!(
             "[diag]   adapter '{}' {} -> discarded: {}",
             one_line(name),

@@ -307,7 +307,13 @@ pub fn clear() {
 /// The startup diagnostic: version, adapters (used / discarded and why),
 /// the IP announced and the HTTPS port. Text built by `log_format`.
 pub fn log_startup_diagnostic(chosen_ip: &str, port: u16) {
-    let ifaces = local_ip_address::list_afinet_netifas().unwrap_or_default();
+    let ifaces = match local_ip_address::list_afinet_netifas() {
+        Ok(list) => list,
+        Err(e) => {
+            err(format!("[diag] could not list network adapters: {}", e));
+            Vec::new()
+        }
+    };
     let choice = crate::net_ifaces::classify_ifaces(&ifaces);
     for line in log_format::startup_diagnostic(env!("CARGO_PKG_VERSION"), &choice, chosen_ip, port) {
         info(line);

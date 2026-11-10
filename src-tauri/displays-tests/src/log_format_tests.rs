@@ -156,3 +156,31 @@ fn el_diagnostico_sin_placas_igual_dice_la_ip_y_el_puerto() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].contains("0 used, 0 discarded"));
 }
+
+#[test]
+fn las_direcciones_ipv6_no_se_cuentan_como_placas_descartadas() {
+    use crate::net_ifaces::classify_ifaces;
+    use std::net::IpAddr;
+    let ifaces: Vec<(String, IpAddr)> = vec![
+        ("Wi-Fi".to_string(), "192.168.0.15".parse().unwrap()),
+        ("Wi-Fi".to_string(), "fe80::1".parse().unwrap()),
+        ("Loopback Pseudo-Interface 1".to_string(), "::1".parse().unwrap()),
+    ];
+    let lines = startup_diagnostic("1.5.3", &classify_ifaces(&ifaces), "192.168.0.15", 53319);
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("1 used, 0 discarded, 2 ipv6 addresses ignored"));
+    assert!(!lines[0].contains("fallback"));
+    assert!(!lines.iter().any(|l| l.contains("fe80")));
+}
+
+#[test]
+fn sin_placas_que_pasen_la_regla_dice_que_la_ip_es_de_respaldo() {
+    use crate::net_ifaces::classify_ifaces;
+    use std::net::IpAddr;
+    let ifaces: Vec<(String, IpAddr)> =
+        vec![("vEthernet (External)".to_string(), "192.168.0.15".parse().unwrap())];
+    let lines = startup_diagnostic("1.5.3", &classify_ifaces(&ifaces), "192.168.0.15", 53319);
+    assert!(lines[0].contains("announced ip 192.168.0.15 (fallback: no adapter passed the rule)"));
+    assert!(lines[0].contains("0 used, 1 discarded"));
+    assert!(lines[1].contains("discarded: virtual adapter"));
+}
