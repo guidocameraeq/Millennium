@@ -13,7 +13,7 @@ use std::net::{IpAddr, Ipv4Addr};
 pub enum Discard {
     NotIpv4,
     Loopback,
-    /// 169.254.x.x (APIPA): the NIC never got a DHCP lease.
+    /// 169.254.x.x (APIPA): usually a NIC that got no DHCP lease.
     LinkLocal,
     /// Public or otherwise non-RFC1918 address: not a home/office LAN.
     NotPrivate,
@@ -65,7 +65,7 @@ pub fn is_virtual_iface(name: &str) -> bool {
 
 /// Split `ifaces` into real LAN adapters (private, non-loopback, non-virtual
 /// IPv4) and discarded ones. Keeps the input order, so `used[0]` is the
-/// adapter identity has always picked.
+/// adapter `identity::pick_local_ipv4` returns.
 pub fn classify_ifaces(ifaces: &[(String, IpAddr)]) -> IfaceChoice {
     let mut choice = IfaceChoice::default();
     for (name, ip) in ifaces {
