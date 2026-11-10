@@ -95,6 +95,49 @@ pub fn one_line(s: &str) -> String {
     s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
+/// Hides the value of every query parameter (`?token=abc&x=1` becomes
+/// `?token=***&x=***`) in a URL or in an error text that quotes one. The
+/// upload token travels in the query and reqwest errors print the whole URL.
+/// Host, port and path are left as they are.
+pub fn redact_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('?') {
+        out.push_str(&rest[..=i]);
+        rest = &rest[i + 1..];
+        let end = rest
+            .find(|c: char| c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '<' | '>' | ']' | '#'))
+            .unwrap_or(rest.len());
+        // The `: ` that glues the next cause to the URL stays out of the query.
+        let end = rest[..end].trim_end_matches(&[':', ',', ';', '.'][..]).len();
+        let (query, tail) = rest.split_at(end);
+        let pairs: Vec<String> = query
+            .split('&')
+            .map(|p| match p.split_once('=') {
+                Some((k, _)) => format!("{}=***", k),
+                None => p.to_string(),
+            })
+            .collect();
+        out.push_str(&pairs.join("&"));
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Longest message the screen may write to the log, in characters.
+pub const MAX_UI_CHARS: usize = 300;
+
+/// What the frontend sent, cut to `MAX_UI_CHARS` characters (with `…` when it
+/// was longer). An error from the screen that quotes user text enters cut.
+pub fn limit_ui_msg(msg: &str) -> String {
+    if msg.chars().count() <= MAX_UI_CHARS {
+        return msg.to_string();
+    }
+    let cut: String = msg.chars().take(MAX_UI_CHARS).collect();
+    format!("{}…", cut)
+}
+
 /// `alias (ip:port)`
 pub fn peer_label(alias: &str, ip: &str, port: u16) -> String {
     format!("{} ({}:{})", one_line(alias), one_line(ip), port)
@@ -122,7 +165,7 @@ pub fn send_failed_line(op: &str, alias: &str, ip: &str, port: u16, cause: &str)
         "[send] FAILED {} -> {}: {}",
         op,
         peer_label(alias, ip, port),
-        one_line(cause)
+        redact_query(&one_line(cause))
     )
 }
 
