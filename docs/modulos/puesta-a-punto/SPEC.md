@@ -1,6 +1,6 @@
 # SPEC: Puesta a punto — Millennium
 Cortar la tormenta de mDNS, dejar todo error de red guardado en disco con fecha, hacer más firmes los envíos entre PCs y ordenar el código por dentro con los tests en verde.
-- Estado: READY
+- Estado: COMPLETO 2026-11-10
 - Fecha: 2026-11-10
 - Sello del Arquitecto: `arquitecto: 2026-11-10 · kit 3.0.0-rc.6 · chequeos: tamaño ✅ · entorno ✅ · tope ✅ · hash f23baa203c8b`
 
