@@ -195,6 +195,30 @@ pub fn hello_targets(used: &[(String, Ipv4Addr)], prefix: u8) -> Vec<Ipv4Addr> {
     out
 }
 
+/// Are `a` and `b` in the same `/prefix` subnet? (`prefix` 0 or > 32: no.)
+pub fn same_subnet(a: Ipv4Addr, b: Ipv4Addr, prefix: u8) -> bool {
+    if prefix == 0 || prefix > 32 {
+        return false;
+    }
+    let mask = u32::MAX << (32 - prefix as u32);
+    (u32::from(a) & mask) == (u32::from(b) & mask)
+}
+
+/// Which of the addresses a peer announced over mDNS to use. A peer with WSL
+/// or Hyper-V announces its virtual NIC too, and mDNS gives no order, so
+/// prefer the IPv4 that shares a subnet with one of OUR real adapters
+/// (`local`, from `classify_ifaces`); if none does, the first one, as before.
+pub fn pick_peer_addr(candidates: &[IpAddr], local: &[Ipv4Addr], prefix: u8) -> Option<IpAddr> {
+    candidates
+        .iter()
+        .find(|c| match c {
+            IpAddr::V4(c4) => local.iter().any(|l| same_subnet(*l, *c4, prefix)),
+            IpAddr::V6(_) => false,
+        })
+        .or_else(|| candidates.first())
+        .copied()
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)

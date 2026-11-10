@@ -937,12 +937,27 @@ fn handle_event(
                 .get_property_val_str("icon")
                 .unwrap_or("desktop")
                 .to_string();
-            let ip = info
-                .get_addresses()
-                .iter()
-                .next()
-                .map(|a| a.to_string())
-                .unwrap_or_default();
+            let candidates: Vec<IpAddr> = info.get_addresses().iter().copied().collect();
+            // With one address there is nothing to choose (and no NIC
+            // enumeration); with several, prefer the one on a subnet of one
+            // of our real adapters.
+            let local: Vec<std::net::Ipv4Addr> = if candidates.len() > 1 {
+                local_ip_address::list_afinet_netifas()
+                    .map(|ifaces| crate::net_ifaces::classify_ifaces(&ifaces).used)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(_, ip)| ip)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let ip = crate::net_ifaces::pick_peer_addr(
+                &candidates,
+                &local,
+                crate::net_ifaces::ASSUMED_PREFIX,
+            )
+            .map(|a| a.to_string())
+            .unwrap_or_default();
 
             let port = info.get_port();
             let fullname = info.get_fullname().to_string();
