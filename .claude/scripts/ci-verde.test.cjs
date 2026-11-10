@@ -128,3 +128,12 @@ test('objetivoMerge: GitHub sí lo conoce (no es 422) → sigue igual', () => {
 test('objetivoMerge: 422 sin --merge → sigue igual', () => {
   assert.strictEqual(objetivoMerge({ sha: M, padres: [P1, P2], status: 422, merge: false }), null);
 });
+
+const { padresDe } = require('./ci-verde.cjs');
+
+test('padresDe: salida de rev-list --parents → lista de padres (sin el commit)', () => {
+  assert.deepStrictEqual(padresDe(`${M} ${P1} ${P2}\n`), [P1, P2]);
+  assert.deepStrictEqual(padresDe(`${M} ${P1}`), [P1]);
+  assert.deepStrictEqual(padresDe(M), []);
+  assert.deepStrictEqual(padresDe(''), []);
+});

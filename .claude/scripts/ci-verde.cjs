@@ -68,6 +68,11 @@ function objetivoMerge({ sha, padres, status, merge }) {
   return { sha: punta, aviso: `ci-verde: ${String(sha).slice(0, 7)} es un merge sin pushear; miro su punta ${String(punta).slice(0, 7)}` };
 }
 
+// Salida de `git rev-list --parents -n 1 <sha>` ("<sha> <padre1> <padre2>…") → los padres.
+function padresDe(salida) {
+  return String(salida).trim().split(/[ \t\r\n]+/).filter(Boolean).slice(1);
+}
+
 function resumen(sha, total, codigo) {
   const estado = codigo === null ? 'sin verificar' : codigo === 0 ? 'verde' : codigo === 1 ? 'rojo' : 'corriendo';
   return `ci-verde @${String(sha).slice(0, 7)}: ${total} checks · ${estado}`;
@@ -141,7 +146,7 @@ async function main(argv) {
   let padres = [];
   try {
     sha = git(['rev-parse', '--verify', `${ref}^{commit}`]);
-    if (merge) padres = git(['rev-list', '--parents', '-n', '1', sha]).split(/s+/).slice(1);
+    if (merge) padres = padresDe(git(['rev-list', '--parents', '-n', '1', sha]));
     dr = dueñoRepo(git(['remote', 'get-url', 'origin']));
   } catch (e) {
     return noVerificado(sha, `no pude resolver ${ref} o el remote origin`);
@@ -181,4 +186,4 @@ if (require.main === module) {
     .then((c) => process.exit(c));
 }
 
-module.exports = { veredicto, dueñoRepo, sinChecksVencido, resumen, decidir, textoHttp, objetivoMerge };
+module.exports = { veredicto, dueñoRepo, sinChecksVencido, resumen, decidir, textoHttp, objetivoMerge, padresDe };
