@@ -1,0 +1,3 @@
+#!/bin/sh
+unset -f env sed command echo 2>/dev/null; command -v node >/dev/null 2>&1 || { echo "kit pre-commit: no hay node en esta PC — no pasa (instalalo o corré doctor)" >&2; exit 1; }
+for v in $(env | sed -n 's/^\([Nn][Oo][Dd][Ee]_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done; exec node .githooks/kit-githook.cjs pre-commit "$@"

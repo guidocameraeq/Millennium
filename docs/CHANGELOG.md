@@ -2,6 +2,8 @@
 
 > Historia permanente. `/cierre` agrega una entrada AL TOPE en cada sesión. Orden descendente estricto, sin excepciones. Nada de versiones duplicadas en otros docs.
 
+kit 3.0.0-rc.6: adopción — piezas settings, hook-arranque, hook-escritura, hook-git-seguro, hook-sensible, cambios-metodo, hooks-lib, scripts, inicio, cierre, githooks, docs, estado, director-obrero — D1: A, los del kit reemplazan los propios
+
 ## 2026-07-29 — Partición en 2 repos + debut **Millennium v1.5.1** + cosmética **v1.5.2**
 
 Se partió el proyecto en dos productos y se pulió cada uno. Puro repo/branding/plumbing, salvo el debut (que finalizó lo que estaba en beta) y la cosmética v1.5.2 (2 líneas). **Nada de la app diaria se rompió** — se actualizó por el updater de siempre en cada paso.

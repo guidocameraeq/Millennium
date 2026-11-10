@@ -1,0 +1,3 @@
+.claude/frenos.log merge=union
+.githooks/* text eol=lf
+docs/modulos/**/mesa/** text eol=lf

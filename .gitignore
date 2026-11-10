@@ -80,3 +80,11 @@ src-tauri/gen/android/build/
 src-tauri/gen/android/app/build/
 src-tauri/gen/android/buildSrc/build/
 src-tauri/gen/android/keystore.properties
+/.claude/worktrees/
+/.claude/settings.local.json
+/.claude/launch.json
+/.kit-rol
+/.kit-noche
+/.claude/paquetes/
+.venv/
+!/.claude/frenos.log

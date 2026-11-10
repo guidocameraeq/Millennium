@@ -69,3 +69,9 @@ Los rituales viven en `.claude/skills/`: **`/inicio` · `/cierre` · `/smoke`**.
 - Español rioplatense (vos), **en criollo: corto, sin jerga técnica** — el usuario no es programador. Aplica a TODO.
 - Decisiones: opciones con pros/contras + UNA recomendación justificada.
 - Explicar QUÉ cambié, no narrar el proceso.
+
+## El tamaño del pedido
+
+Ante un pedido nuevo, **la primera línea de tu respuesta es el tamaño**, sin preguntar. Dos preguntas: ¿hace falta algo más que el pedido y el `git diff` para retomarlo? ¿lleva más de una sesión? Ninguna sí: *"chico, lo hago acá"*. Alguna sí: *"esto es más que chico: llamo al Arquitecto"*, e invocás `/arquitecto`. Tocar plata, permisos o datos reales no lo agranda: eso lo cuidan los frenos, no un spec.
+
+Lo que sale de una charla con el dueño (una guía, un procedimiento, algo que está en su cabeza) es más que chico aunque termine en un documento: retomarlo pide esa charla. Más que chico **siempre invoca `/arquitecto`**, también de noche o sin el dueño: si trabaja alguien solo y cómo, lo decide el Arquitecto.
