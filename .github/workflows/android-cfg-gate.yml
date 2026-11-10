@@ -34,6 +34,7 @@ on:
       # propósito y ver que lo caza) sin disparar el build pesado de Windows,
       # que no las escucha.
       - 'ci/**'
+      - 'modulo/**'
 
 permissions:
   contents: read

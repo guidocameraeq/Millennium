@@ -19,7 +19,8 @@ name: Build Windows (portable .exe)
 on:
   workflow_dispatch:
   push:
-    branches: [main, feat/displays]
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md']
 
 permissions:
   contents: read
