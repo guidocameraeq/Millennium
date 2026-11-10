@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Millennium · Escenas (prototipo)</title>
+<style>
+:root{
+  --bg:#050513; --card:rgba(14,22,44,.85); --vio:#b45cff; --vio2:#7a3db8; --mag:#ff2bd6;
+  --amb:#ffb347; --ok:#39ff14; --bad:#ff3860; --txt:#e6fbff; --mut:#7894a8;
+  --head:"Orbitron","Audiowide",sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:13px;
+  background-image:linear-gradient(rgba(180,92,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(180,92,255,.08) 1px,transparent 1px);
+  background-size:40px 40px;min-height:100vh;padding-bottom:90px}
+.review{margin:10px;padding:10px 14px;border:2px dashed #e8d44d;color:#f5e98a;background:rgba(232,212,77,.06);font-family:var(--mono);font-size:12px;line-height:1.5}
+.app{max-width:1000px;margin:0 auto;padding:0 14px}
+h1,h2,h3,.hd{font-family:var(--head);text-transform:uppercase;letter-spacing:3px;font-weight:700}
+h2{font-size:12px;color:var(--vio);margin:0 0 10px}
+button{font-family:var(--head);text-transform:uppercase;letter-spacing:3px;font-size:11px;font-weight:700;background:transparent;color:var(--vio);border:1px solid var(--vio);padding:8px 12px;cursor:pointer}
+button:hover:not(:disabled){background:rgba(180,92,255,.18);box-shadow:0 0 14px rgba(180,92,255,.4)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.main{background:var(--vio);color:#050513}
+button.main:hover:not(:disabled){background:#c97dff}
+button.bad{color:var(--bad);border-color:var(--bad)}
+button.ok{color:var(--ok);border-color:var(--ok)}
+button.amb{color:var(--amb);border-color:var(--amb)}
+button.sm{padding:4px 8px;letter-spacing:1px;font-size:10px}
+input[type=text],input[type=number],select{background:#0a1124;color:var(--txt);border:1px solid var(--vio2);padding:7px 9px;font-family:var(--mono);font-size:13px;width:100%}
+select{width:auto;max-width:100%}
+input:focus,select:focus{outline:none;border-color:var(--vio);box-shadow:0 0 10px rgba(180,92,255,.4)}
+.tabs{display:flex;gap:0;margin:14px 0;border-bottom:1px solid var(--vio2)}
+.tabs button{border:none;border-bottom:3px solid transparent;padding:12px 22px}
+.tabs button.on{color:var(--txt);border-bottom-color:var(--mag)}
+.card{background:var(--card);border:1px solid var(--vio);box-shadow:0 0 48px rgba(180,92,255,.25);padding:14px;margin-bottom:14px;position:relative}
+.sec{background:var(--card);border:1px solid var(--vio2);padding:14px;margin-bottom:14px}
+.muted{color:var(--mut)} .small{font-size:11px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+/* scene card */
+.scene{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.scene.applied{border-color:var(--ok);box-shadow:0 0 36px rgba(57,255,20,.18)}
+.handle{cursor:grab;color:var(--mut);font-size:20px;padding:0 4px;user-select:none}
+.mini{position:relative;width:160px;height:70px;flex:none;background:rgba(0,0,0,.35);border:1px solid #1d2a4a}
+.mini i{position:absolute;display:block;border:1px solid var(--vio);background:rgba(180,92,255,.35)}
+.mini i.off{border:1px dashed #5b6a7a;background:transparent}
+.mini i.pri{border:2px solid var(--mag);box-shadow:0 0 6px var(--mag)}
+.info{flex:1;min-width:240px}
+.info .name{font-family:var(--head);font-size:15px;letter-spacing:3px;text-transform:uppercase;margin-bottom:4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{border:1px solid var(--vio2);padding:3px 8px;font-size:11px;color:var(--txt);background:rgba(180,92,255,.08)}
+.chip.g{border-color:var(--ok);color:var(--ok)}
+.badge{font-family:var(--head);font-size:10px;letter-spacing:3px;background:var(--ok);color:#050513;padding:3px 8px;font-weight:700;margin-left:8px;vertical-align:middle}
+.acts{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:130px}
+.acts .r{display:flex;gap:6px}
+.acts .r button{flex:1}
+.moves{display:none;gap:4px} .card:hover .moves{display:flex}
+.menu{position:absolute;right:14px;bottom:-4px;transform:translateY(100%);z-index:5;background:#0a1124;border:1px solid var(--vio);display:flex;flex-direction:column;min-width:150px}
+.menu button{border:none;text-align:left}
+.inline{border:1px solid var(--bad);background:rgba(255,56,96,.08);padding:10px;margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;width:100%}
+.inline.vio{border-color:var(--vio);background:rgba(180,92,255,.08)}
+.reason{color:var(--amb);font-size:11px}
+.dragover{outline:2px dashed var(--mag)}
+/* banners */
+.banner{padding:12px 14px;margin-bottom:14px;border:1px solid var(--vio);background:rgba(180,92,255,.1);font-size:13px}
+.testbar{position:sticky;top:0;z-index:20;background:#2a1d05;border:1px solid var(--amb);color:var(--amb);padding:12px 14px;margin-bottom:12px;box-shadow:0 0 24px rgba(255,179,71,.3)}
+.testbar .hd{font-size:12px}
+.err{color:var(--bad);font-weight:bold;margin-top:8px}
+/* canvas */
+.canvas{position:relative;height:300px;border:1px solid #1d2a4a;background:rgba(0,0,0,.35);overflow:hidden;touch-action:none}
+.mon{position:absolute;border:1px solid var(--vio);background:rgba(180,92,255,.3);cursor:move;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;user-select:none;padding:2px}
+.mon.pri{border:2px solid var(--mag);box-shadow:0 0 12px var(--mag)}
+.mon.off{border:1px dashed #5b6a7a;background:rgba(255,255,255,.03);color:var(--mut)}
+.mon.bad{border-color:var(--bad);background:rgba(255,56,96,.3)}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+td{padding:8px 6px;border-top:1px solid #1d2a4a;vertical-align:middle}
+tr.dis td{opacity:.5}
+.sw{display:inline-flex;border:1px solid var(--vio2)} .sw button{border:none;padding:5px 10px;font-size:10px;letter-spacing:1px}
+.sw button.on{background:var(--vio);color:#050513} .sw button.on.off{background:#4a5568;color:#fff}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px} @media(max-width:760px){.cols{grid-template-columns:1fr}}
+.act{display:flex;align-items:center;gap:6px;border:1px solid var(--vio2);padding:6px 8px;margin-bottom:6px;background:rgba(180,92,255,.07)}
+.act .t{flex:1;cursor:pointer} .act .t:hover{color:var(--vio)}
+.form{border:1px solid var(--vio);padding:10px;margin-bottom:8px;display:flex;flex-direction:column;gap:6px;background:rgba(180,92,255,.1)}
+.tray{display:inline-block;background:#202020;border:1px solid #4a4a4a;color:#eee;font-family:"Segoe UI",sans-serif;font-size:13px;min-width:230px;padding:4px 0;box-shadow:0 6px 20px #000}
+.tray hr{border:0;border-top:1px solid #444;margin:4px 0}
+.tray .ti{padding:6px 18px;cursor:default} .tray .ti:hover{background:#3a3a3a}
+.tray .subm{margin:2px 0 2px 14px;border-left:2px solid #555} .tray .subm .ti{cursor:pointer;display:flex;gap:8px} .ck{width:14px;color:var(--ok)}
+.emo{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.emo button{font-size:20px;padding:4px 8px;letter-spacing:0;font-family:inherit} .emo button.on{background:rgba(180,92,255,.35)}
+.bigico{font-size:34px;line-height:1;width:44px;text-align:center;flex:none}
+.sticky{position:fixed;left:0;right:0;bottom:0;background:rgba(5,5,19,.96);border-top:1px solid var(--vio);padding:12px 14px;z-index:15}
+.sticky .in{max-width:1000px;margin:0 auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.dirty{color:var(--amb);flex:1}
+.toast{position:fixed;top:20px;right:20px;background:var(--ok);color:#050513;padding:10px 18px;font-family:var(--head);letter-spacing:3px;text-transform:uppercase;font-size:12px;font-weight:700;z-index:50;box-shadow:0 0 30px rgba(57,255,20,.5)}
+kbd{font-family:var(--mono);border:1px solid var(--vio);padding:2px 8px;background:#0a1124}
+label{cursor:pointer}
+</style>
+</head>
+<body>
+<div class="review">PROTOTIPO — no es la app, es para decidir. Pregunta: ¿con esta pantalla podés armar una escena nueva sin aplicarla, duplicar una y cambiarle cosas, y ver de un vistazo qué hace cada escena? Anotá qué cambiarías.</div>
+<div class="app" id="app"></div>
+
+<script>
+/* ============ Datos falsos ============ */
+const MONS = {
+  izq:{name:'Monitor izquierdo', conn:true,  resList:['1920×1080 · 60 Hz','La que elija Windows']},
+  cen:{name:'Monitor central',   conn:true,  resList:['2560×1440 · 144 Hz','2560×1440 · 60 Hz','1920×1080 · 60 Hz','La que elija Windows']},
+  tv: {name:'TV LG',             conn:true,  resList:['3840×2160 · 60 Hz','1920×1080 · 60 Hz','La que elija Windows'], note:'Resoluciones que recuerdo de la última vez que estuvo prendida'},
+  pro:{name:'Proyector',         conn:false, resList:[]}
+};
+const ORDER = ['izq','cen','tv'];
+const AUDIOS = ['No tocar','Parlantes','Auriculares','TV LG (HDMI)'];
+const GAMES=['Hades II','Elden Ring','Rocket League'], ACCOUNTS=['Guido','Trabajo','Invitado'], PROGS=['Steam','Chrome','Hades II','VLC'];
+const SCREENS=['Monitor izquierdo','Monitor central','TV LG'];
+// campo: [clave, texto, tipo, opciones, valor inicial]
+const ACT_TYPES = {
+  bigpicture:{label:'Abrir Big Picture de Steam', fields:[]},
+  juego:{label:'Abrir un juego de Steam…', fields:[['v','Juego','select',GAMES,GAMES[0]]]},
+  chrome:{label:'Chrome con una cuenta y un link…', fields:[['cuenta','Cuenta de Chrome','select',ACCOUNTS,ACCOUNTS[0]],['link','Link que se abre (ej: https://…)','text',null,'']]},
+  cerrarbp:{label:'Cerrar Big Picture', fields:[]},
+  cerrar:{label:'Cerrar un programa…', fields:[['v','Programa','select',PROGS,PROGS[0]]], note:'Se cierra amable, como tocar la X'},
+  esperar:{label:'Esperar unos segundos…', fields:[['v','segundos (de 1 a 30)','number',null,5]]},
+  hdr:{label:'HDR de una pantalla…', fields:[['pantalla','Pantalla','select',SCREENS,'TV LG'],['modo','Qué hacer','select',['Prender','Apagar'],'Prender']]},
+  volumen:{label:'Poner el volumen en…', fields:[['v','Volumen de 0 a 100','number',null,40]]},
+  programa:{label:'Abrir un programa…', fields:[['v','Dónde está el programa (ej: C:\\Programas\\algo.exe)','text',null,'']]}
+};
+const mk = (on,res) => ({on,res});
+let uid = 10;
+const S = {
+  tab:'escenas', view:'list', shortcutsOn:false,
+  applied:1, menuId:null, confirmDel:null, chooser:null,
+  draft:null, orig:null, isNew:false, confirmCancel:false, editAct:null, recording:false,
+  test:null, toastMsg:null,
+  scenes:[
+    {id:1,icon:'💼',name:'Trabajo',mon:{izq:mk(true,'1920×1080 · 60 Hz'),cen:mk(true,'2560×1440 · 144 Hz'),tv:mk(false,'3840×2160 · 60 Hz'),pro:mk(false,'guardada')},
+      primary:'cen',pos:{izq:{x:40,y:80},cen:{x:155,y:60},tv:{x:320,y:40}},audio:'Parlantes',enter:[],exit:[],shortcut:'Ctrl+Alt+1',boot:false},
+    {id:2,icon:'🎮',name:'Jugar en la TV',mon:{izq:mk(false,'1920×1080 · 60 Hz'),cen:mk(false,'2560×1440 · 144 Hz'),tv:mk(true,'3840×2160 · 60 Hz'),pro:mk(false,'guardada')},
+      primary:'tv',pos:{izq:{x:40,y:80},cen:{x:155,y:60},tv:{x:320,y:40}},audio:'TV LG (HDMI)',
+      enter:[{t:'bigpicture'},{t:'volumen',v:40},{t:'esperar',v:5},{t:'hdr',pantalla:'TV LG',modo:'Prender'}],exit:[{t:'cerrarbp'},{t:'cerrar',v:'Steam'},{t:'hdr',pantalla:'TV LG',modo:'Apagar'}],shortcut:'Ctrl+Alt+2',boot:false},
+    {id:3,icon:'🍿',name:'Película',mon:{izq:mk(false,'1920×1080 · 60 Hz'),cen:mk(true,'2560×1440 · 60 Hz'),tv:mk(true,'1920×1080 · 60 Hz'),pro:mk(false,'guardada')},
+      primary:'cen',pos:{izq:{x:40,y:80},cen:{x:155,y:60},tv:{x:320,y:40}},audio:'TV LG (HDMI)',
+      enter:[{t:'chrome',cuenta:'Casa',link:'https://netflix.com'}],exit:[],shortcut:'',boot:true},
+    {id:4,icon:'🖥️',name:'Solo central',mon:{izq:mk(false,'1920×1080 · 60 Hz'),cen:mk(true,'2560×1440 · 144 Hz'),tv:mk(false,'3840×2160 · 60 Hz'),pro:mk(false,'guardada')},
+      primary:'cen',pos:{izq:{x:40,y:80},cen:{x:155,y:60},tv:{x:320,y:40}},audio:'No tocar',enter:[],exit:[],shortcut:'',boot:false}
+  ]
+};
+const clone = o => JSON.parse(JSON.stringify(o));
+const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const byId = id => S.scenes.find(s=>s.id===id);
+
+/* ============ Utilidades ============ */
+const SC = 0.06;
+function dims(res){
+  const m = /(\d+)×(\d+)/.exec(res||''); const w = m?+m[1]:1920, h = m?+m[2]:1080;
+  return {w:Math.round(w*SC), h:Math.round(h*SC)};
+}
+function actLabel(a){
+  switch(a.t){
+    case 'bigpicture': return '🎮 Big Picture';
+    case 'cerrarbp': return '✕ Cerrar Big Picture';
+    case 'volumen': return '🔈 Volumen '+(a.v===''||a.v==null?'?':a.v);
+    case 'juego': return '🎮 Juego: '+(a.v||'(sin elegir)');
+    case 'chrome': return '🌐 Chrome '+(a.cuenta||'(sin cuenta)')+' → '+(a.link||'(sin link)');
+    case 'programa': return '▶ Programa: '+(a.v||'(sin elegir)');
+    case 'cerrar': return '✕ Cerrar '+a.v;
+    case 'esperar': return '⏳ Esperar '+a.v+' s';
+    case 'hdr': return '🌈 HDR '+a.pantalla+': '+a.modo.toLowerCase();
+  } return a.t;
+}
+function sentence(s){
+  const on = ORDER.filter(k=>s.mon[k].on).map(k=>short(k));
+  const off = ORDER.filter(k=>!s.mon[k].on).map(k=>short(k));
+  return 'Prende: '+(on.join(', ')||'nada')+' · Apaga: '+(off.join(', ')||'nada')+' · Principal: '+short(s.primary);
+}
+const short = k => ({izq:'izquierdo',cen:'central',tv:'TV'}[k]);
+function miniMap(s){
+  const box = ORDER.map(k=>({k,...s.pos[k],...dims(s.mon[k].res)}));
+  const x0=Math.min(...box.map(b=>b.x)), y0=Math.min(...box.map(b=>b.y));
+  const x1=Math.max(...box.map(b=>b.x+b.w)), y1=Math.max(...box.map(b=>b.y+b.h));
+  const f = Math.min(146/(x1-x0), 56/(y1-y0));
+  const ox = (160-(x1-x0)*f)/2, oy=(70-(y1-y0)*f)/2;
+  return '<div class="mini">'+box.map(b=>{
+    const cls = (s.mon[b.k].on?'':'off ')+(s.primary===b.k&&s.mon[b.k].on?'pri':'');
+    return `<i class="${cls}" style="left:${ox+(b.x-x0)*f}px;top:${oy+(b.y-y0)*f}px;width:${b.w*f}px;height:${b.h*f}px"></i>`;
+  }).join('')+'</div>';
+}
+function toast(msg){
+  S.toastMsg = msg; render();
+  setTimeout(()=>{ if(S.toastMsg===msg){S.toastMsg=null; render();} }, 1800);
+}
+const isDirty = () => S.draft && JSON.stringify(S.draft)!==JSON.stringify(S.orig);
+const anyOn = d => ORDER.some(k=>d.mon[k].on);
+
+/* ============ Render ============ */
+function render(){
+  const app = document.getElementById('app');
+  const active = document.activeElement;
+  let h = '';
+  h += testBanner();
+  h += `<div class="tabs">
+    <button class="${S.tab==='escenas'?'on':''}" data-act="tab" data-v="escenas">Escenas</button>
+    <button class="${S.tab==='lista'?'on':''}" data-act="tab" data-v="lista">Lista</button>
+    <button class="${S.tab==='lienzo'?'on':''}" data-act="tab" data-v="lienzo">Lienzo</button>
+    <button class="${S.tab==='ajustes'?'on':''}" data-act="tab" data-v="ajustes">Ajustes</button></div>`;
+  if(S.tab==='lista'||S.tab==='lienzo') h += `<div class="card"><p>Queda igual que hoy (pantallas en vivo)</p></div>`;
+  else if(S.tab==='ajustes') h += `<div class="card"><h2>Plazo de vuelta atrás</h2><p class="muted">Cuántos segundos tenés para confirmar una prueba antes de que todo vuelva solo.</p><input type="number" value="10" style="width:100px"> <span class="muted">segundos</span></div>`;
+  else h += S.view==='list' ? renderList() : renderEditor();
+  if(S.toastMsg) h += `<div class="toast">${esc(S.toastMsg)}</div>`;
+  h += trayBox();
+  app.innerHTML = h;
+  if(S.view==='edit' && S.tab==='escenas') drawCanvas();
+}
+
+function trayBox(){
+  return `<div class="card" style="margin-top:30px"><h2>Así se ve en el ícono de la bandeja (al lado del reloj)</h2>
+    <div class="tray"><div class="ti">Abrir Millennium</div><hr>
+    <div class="ti">Escenas ▸</div>
+    <div class="subm">${S.scenes.map(s=>`<div class="ti" data-act="trayPick" data-id="${s.id}"><span class="ck">${S.applied===s.id?'✓':''}</span>${esc(s.icon||'▫')} ${esc(s.name)}</div>`).join('')}</div>
+    <hr><div class="ti">Salir</div></div>
+    <div class="muted small" style="margin-top:8px">Tocá una escena del menú de ejemplo: mueve la etiqueta PUESTA AHORA.</div></div>`;
+}
+function testBanner(){
+  if(!S.test) return '';
+  const t = S.test;
+  if(t.ended) return `<div class="testbar"><span class="hd">Volvió a como estaba</span></div>`;
+  return `<div class="testbar"><div class="row"><span class="hd" style="flex:1">Probando "${esc(t.name)}" — vuelve sola en ${t.left} s</span>
+    <button class="ok" data-act="testKeep">✓ Me quedo</button><button class="amb" data-act="testBack">↩ Volver ahora</button></div>
+    <div class="small" style="margin-top:6px">Probar no guarda la escena: después tocá GUARDAR.</div></div>`;
+}
+const testing = () => S.test && !S.test.ended;
+
+/* ---- Lista ---- */
+function renderList(){
+  let h = `<div class="top"><div><h1 style="font-size:16px;margin:0;letter-spacing:4px">Escenas</h1><div class="muted small">Cada escena es una forma de tener tus pantallas.</div></div>
+    <button class="main" data-act="newOpen">＋ Nueva escena</button></div>`;
+  if(S.chooser){
+    h += `<div class="inline vio" style="margin-bottom:14px"><b>¿De dónde arranco?</b>`;
+    if(S.chooser==='open'){
+      h += `<button data-act="newNow">De lo que está puesto ahora</button><button data-act="newCopyPick">Copia de otra escena…</button><button data-act="newBlank">En blanco</button>`;
+    } else {
+      h += `<span class="muted">Elegí cuál copiar:</span>`+S.scenes.map(s=>`<button data-act="newCopy" data-id="${s.id}">${esc(s.name)}</button>`).join('');
+    }
+    h += `<button class="sm" data-act="newClose">Cancelar</button></div>`;
+  }
+  S.scenes.forEach((s,i)=>{
+    const ap = S.applied===s.id;
+    const chips = [];
+    chips.push(`<span class="chip">🔊 ${esc(s.audio==='No tocar'?'Audio: no toca':s.audio)}</span>`);
+    if(s.shortcut) chips.push(`<span class="chip">⌨ ${esc(s.shortcut)}${S.shortcutsOn?'':' (apagado)'}</span>`);
+    if(s.enter.length) chips.push(`<span class="chip">🎬 Al entrar: ${esc(s.enter.map(actLabel).join(' · '))}</span>`);
+    if(s.exit.length) chips.push(`<span class="chip">🎬 Al salir: ${esc(s.exit.map(actLabel).join(' · '))}</span>`);
+    if(s.boot) chips.push(`<span class="chip g">⏻ arranca con Windows</span>`);
+    h += `<div class="card scene ${ap?'applied':''}" data-scene="${s.id}">
+      <span class="handle" data-handle="${s.id}" title="Arrastrá para ordenar">⠿</span>
+      <div class="bigico">${esc(s.icon||'▫')}</div>
+      ${miniMap(s)}
+      <div class="info"><div class="name">${esc(s.name)}${ap?'<span class="badge">Puesta ahora</span>':''}</div>
+        <div class="muted">${esc(sentence(s))}</div><div class="chips">${chips.join('')}</div></div>
+      <div class="acts">
+        <button class="main" data-act="apply" data-id="${s.id}" ${testing()||ap?'disabled':''}>${ap?'Puesta':'Aplicar'}</button>
+        ${testing()?'<span class="reason">Hay una prueba en curso</span>':''}
+        <div class="r"><button data-act="edit" data-id="${s.id}">Editar</button><button data-act="menu" data-id="${s.id}">⋯</button></div>
+        <div class="moves"><button class="sm" data-act="up" data-id="${s.id}" ${i===0?'disabled':''}>↑</button><button class="sm" data-act="down" data-id="${s.id}" ${i===S.scenes.length-1?'disabled':''}>↓</button></div>
+      </div>
+      ${S.menuId===s.id?`<div class="menu"><button data-act="dup" data-id="${s.id}">Duplicar</button><button data-act="rename" data-id="${s.id}">Renombrar</button><button class="bad" data-act="delAsk" data-id="${s.id}">Borrar</button></div>`:''}
+      ${S.confirmDel===s.id?`<div class="inline"><span>¿Borrar "${esc(s.name)}"? No se puede deshacer.</span><button class="bad" data-act="delYes" data-id="${s.id}">Sí, borrar</button><button data-act="delNo">No</button></div>`:''}
+    </div>`;
+  });
+  h += `<div class="muted small">La app reconoce qué escena coincide con cómo están tus pantallas, aunque las hayas puesto a mano.</div>`;
+  return h;
+}
+
+/* ---- Editor ---- */
+function renderEditor(){
+  const d = S.draft;
+  const valid = anyOn(d);
+  let h = `<div style="margin-bottom:10px"><button class="sm" data-act="back">← volver a escenas</button></div>
+  <div class="banner">Estás editando en borrador: nada cambia en tus pantallas hasta que toques <b>PROBAR</b>.</div>`;
+  /* 1 nombre */
+  h += `<div class="sec"><h2>1 · Nombre</h2><input type="text" id="f-name" value="${esc(d.name)}" placeholder="Cómo querés llamar a esta escena">
+    <div class="emo"><span class="muted small">Ícono:</span>${['💼','🎮','🍿','📺','🖥️','🎧','🌙','☀️','🎬','📚','🕹️','⭐'].map(e=>`<button class="${d.icon===e?'on':''}" data-act="icon" data-v="${e}">${e}</button>`).join('')}<button class="sm ${d.icon?'':'on'}" data-act="icon" data-v="">sin ícono</button></div></div>`;
+  /* 2 pantallas */
+  h += `<div class="sec"><div class="top" style="margin:0 0 10px"><h2 style="margin:0">2 · Pantallas</h2><button class="sm" data-act="copyLive">Copiar lo que está puesto ahora</button></div>
+    <div class="muted small" style="margin-bottom:8px">Arrastrá las pantallas para acomodarlas como están en tu escritorio. Se pegan solas por los bordes.</div>
+    <div class="canvas" id="canvas"></div><table>`;
+  ORDER.forEach(k=>{
+    const m = d.mon[k];
+    h += `<tr class="${m.on?'':'dis'}"><td><b>${MONS[k].name}</b>${MONS[k].note?`<div class="muted small">${MONS[k].note}</div>`:''}</td>
+      <td><span class="sw"><button class="${m.on?'on':''}" data-act="monOn" data-k="${k}">Prendida</button><button class="${!m.on?'on off':''}" data-act="monOff" data-k="${k}">Apagada</button></span></td>
+      <td><label><input type="radio" name="pri" data-act="pri" data-k="${k}" ${d.primary===k?'checked':''} ${m.on?'':'disabled'}> ★ principal</label></td>
+      <td><select data-sel="res" data-k="${k}" ${m.on?'':'disabled'}>${MONS[k].resList.map(r=>`<option ${r===m.res?'selected':''}>${r}</option>`).join('')}</select></td></tr>`;
+  });
+  h += `<tr class="dis"><td><b>Proyector (no conectado)</b><div class="muted small">No está conectado: esta escena lo deja como estaba guardado; si lo prende, no se va a poder aplicar hasta que lo conectes.</div></td>
+    <td><span class="sw"><button class="${d.mon.pro.on?'on':''}" data-act="monOn" data-k="pro" style="pointer-events:auto">Prendida</button><button class="${!d.mon.pro.on?'on off':''}" data-act="monOff" data-k="pro" style="pointer-events:auto">Apagada</button></span></td><td></td><td><select disabled><option>Como estaba guardado</option></select></td></tr>`;
+  h += `</table>`;
+  if(!valid) h += `<div class="err">Tiene que quedar al menos una pantalla prendida</div>`;
+  h += `</div>`;
+  /* 3 sonido */
+  h += `<div class="sec"><h2>3 · Sonido</h2><select data-sel="audio">${AUDIOS.map(a=>`<option ${a===d.audio?'selected':''}>${a}</option>`).join('')}</select>
+    <span class="muted small"> Adónde sale el sonido cuando ponés esta escena.</span></div>`;
+  /* 4 acciones */
+  h += `<div class="sec"><h2>4 · Qué hacer al entrar y al salir</h2><div class="cols">${actCol('enter','Al entrar')}${actCol('exit','Al salir')}</div></div>`;
+  /* 5 atajo */
+  h += `<div class="sec"><h2>5 · Atajo</h2><div class="row">
+    <span>${S.recording?'<b style="color:var(--amb)">Tocá las teclas ahora… (Esc para cancelar)</b>':(d.shortcut?`<kbd>${esc(d.shortcut)}</kbd>`:'<span class="muted">Sin atajo</span>')}</span>
+    <button data-act="rec">Grabar atajo</button><button class="bad" data-act="unrec" ${d.shortcut?'':'disabled'}>Quitar</button></div>
+    ${S.shortcutsOn?'':`<div class="reason" style="margin-top:8px">Los atajos están apagados — <a href="#" data-act="shOn" style="color:var(--amb)">prenderlos</a></div>`}</div>`;
+  /* 6 arranque */
+  const other = S.scenes.find(s=>s.boot && s.id!==d.id);
+  h += `<div class="sec"><h2>6 · Al arrancar</h2><label><input type="checkbox" id="f-boot" ${d.boot?'checked':''}> Poner esta escena cuando arranca Windows</label>
+    ${d.boot&&other?`<div class="reason" style="margin-top:6px">Antes era: ${esc(other.name)}</div>`:''}
+    <div class="muted small" style="margin-top:4px">Solo una escena puede arrancar con Windows.</div></div>`;
+  /* barra */
+  const dirty = isDirty();
+  h += `<div class="sticky"><div class="in">
+    <span class="dirty" id="dirtyTxt">${dirty?'• cambios sin guardar':''}</span>
+    ${S.confirmCancel?`<span>¿Descartar los cambios?</span><button class="bad" data-act="discardYes">Sí, descartar</button><button data-act="discardNo">No, seguir</button>`:
+      `<button data-act="cancel">Cancelar</button>
+       <button class="amb" data-act="probar" ${!valid||testing()?'disabled':''}>Probar</button>
+       <button class="main" data-act="save" ${valid?'':'disabled'}>Guardar</button>`}
+    ${testing()?'<span class="reason">Hay una prueba en curso</span>':''}
+    ${!valid?'<span class="err" style="margin:0">Tiene que quedar al menos una pantalla prendida</span>':''}
+  </div></div>`;
+  return h;
+}
+
+function actCol(list,title){
+  const d = S.draft, arr = d[list];
+  let h = `<div><h3 style="font-size:11px;letter-spacing:3px;margin:0 0 8px">${title}</h3>`;
+  if(!arr.length) h += `<div class="muted small" style="margin-bottom:8px">Nada por ahora.</div>`;
+  arr.forEach((a,i)=>{
+    const editing = S.editAct && S.editAct.list===list && S.editAct.i===i;
+    h += `<div class="act"><span class="t" data-act="actEdit" data-l="${list}" data-i="${i}" title="Tocá para editar">${esc(actLabel(a))}</span>
+      <button class="sm" data-act="actUp" data-l="${list}" data-i="${i}" ${i===0?'disabled':''}>↑</button>
+      <button class="sm" data-act="actDown" data-l="${list}" data-i="${i}" ${i===arr.length-1?'disabled':''}>↓</button>
+      <button class="sm bad" data-act="actDel" data-l="${list}" data-i="${i}">✕</button></div>`;
+    if(editing){
+      const f = ACT_TYPES[a.t].fields;
+      h += `<div class="form"><b class="small">${ACT_TYPES[a.t].label}</b>`;
+      if(!f.length) h += `<span class="muted small">Esta acción no necesita nada más.</span>`;
+      f.forEach(([key,ph,type,opts])=>{
+        if(type==='select') h += `<label class="small muted">${esc(ph)}</label><select data-fld="${key}" data-l="${list}" data-i="${i}">${opts.map(o=>`<option ${o===a[key]?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+        else h += `<input type="${type}" ${a.t==='esperar'?'min="1" max="30"':''} data-fld="${key}" data-l="${list}" data-i="${i}" value="${esc(a[key]??'')}" placeholder="${esc(ph)}">`;
+      });
+      if(ACT_TYPES[a.t].note) h += `<span class="muted small">${ACT_TYPES[a.t].note}</span>`;
+      h += `<div><button class="sm ok" data-act="actOk">Listo</button></div></div>`;
+    }
+  });
+  h += `<select data-sel="addAct" data-l="${list}"><option value="">＋ agregar acción</option>${Object.entries(ACT_TYPES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}</select></div>`;
+  return h;
+}
+
+/* ---- Lienzo de pantallas ---- */
+function drawCanvas(){
+  const cv = document.getElementById('canvas'); if(!cv) return;
+  const d = S.draft; cv.innerHTML='';
+  ORDER.forEach(k=>{
+    const m=d.mon[k], p=d.pos[k], sz=dims(m.res);
+    const el=document.createElement('div');
+    el.className='mon '+(m.on?'':'off ')+(d.primary===k&&m.on?'pri':'');
+    el.style.cssText=`left:${p.x}px;top:${p.y}px;width:${sz.w}px;height:${sz.h}px`;
+    el.innerHTML=`<span>${d.primary===k&&m.on?'★ ':''}${MONS[k].name}<br><span class="muted">${esc(m.res.split(' · ')[0])}</span></span>`;
+    el.addEventListener('pointerdown',e=>startDrag(e,k,el,sz));
+    cv.appendChild(el);
+  });
+}
+function overlaps(k,x,y,sz){
+  return ORDER.some(o=>{ if(o===k) return false; const p=S.draft.pos[o], s=dims(S.draft.mon[o].res);
+    return x<p.x+s.w && x+sz.w>p.x && y<p.y+s.h && y+sz.h>p.y; });
+}
+function snap(k,x,y,sz){
+  const T=12; let bx=x, by=y;
+  ORDER.forEach(o=>{ if(o===k) return; const p=S.draft.pos[o], s=dims(S.draft.mon[o].res);
+    [[p.x+s.w,x],[p.x-sz.w,x],[p.x,x],[p.x+s.w-sz.w,x]].forEach(([t,v])=>{ if(Math.abs(t-v)<T) bx=t; });
+    [[p.y+s.h,y],[p.y-sz.h,y],[p.y,y],[p.y+s.h-sz.h,y]].forEach(([t,v])=>{ if(Math.abs(t-v)<T) by=t; });
+  });
+  return {x:bx,y:by};
+}
+function startDrag(e,k,el,sz){
+  e.preventDefault(); const cv=document.getElementById('canvas'), r=cv.getBoundingClientRect();
+  const p0=S.draft.pos[k], dx=e.clientX-p0.x, dy=e.clientY-p0.y;
+  el.setPointerCapture(e.pointerId);
+  const move=ev=>{
+    let x=Math.max(0,Math.min(r.width-sz.w,ev.clientX-dx)), y=Math.max(0,Math.min(r.height-sz.h,ev.clientY-dy));
+    ({x,y}=snap(k,x,y,sz));
+    el.style.left=x+'px'; el.style.top=y+'px'; el._p={x,y};
+    el.classList.toggle('bad',overlaps(k,x,y,sz));
+  };
+  const up=()=>{
+    el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+    if(el._p && !overlaps(k,el._p.x,el._p.y,sz)) S.draft.pos[k]=el._p;
+    render();
+  };
+  el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
+}
+
+/* ============ Acciones ============ */
+function openEditor(scene,isNew){
+  S.draft=clone(scene); S.orig=clone(scene); S.isNew=isNew; S.view='edit'; S.tab='escenas';
+  S.confirmCancel=false; S.editAct=null; S.recording=false; S.menuId=null; S.chooser=null; S.confirmDel=null;
+}
+function blankScene(from){
+  const base = from ? clone(from) : {
+    mon:{izq:mk(true,'1920×1080 · 60 Hz'),cen:mk(true,'2560×1440 · 144 Hz'),tv:mk(false,'3840×2160 · 60 Hz'),pro:mk(false,'guardada')},
+    primary:'cen',pos:{izq:{x:40,y:80},cen:{x:155,y:60},tv:{x:320,y:40}},audio:'No tocar',enter:[],exit:[]};
+  base.id=++uid; base.name='Escena nueva'; base.icon=''; base.shortcut=''; base.boot=false; return base;
+}
+function move(id,dir){
+  const i=S.scenes.findIndex(s=>s.id===id), j=i+dir; if(j<0||j>=S.scenes.length) return;
+  const [s]=S.scenes.splice(i,1); S.scenes.splice(j,0,s);
+}
+function startTest(){
+  const name=S.draft.name||'Escena nueva';
+  if(S.test && S.test.timer) clearInterval(S.test.timer);
+  S.test={name,left:10,ended:false};
+  S.test.timer=setInterval(()=>{
+    S.test.left--;
+    if(S.test.left<=0){ clearInterval(S.test.timer); S.test.ended=true; setTimeout(()=>{S.test=null;render();},2500); }
+    render();
+  },1000);
+}
+function stopTest(msg){
+  if(S.test&&S.test.timer) clearInterval(S.test.timer);
+  S.test=null; if(msg) toast(msg); else render();
+}
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(!el){ if(S.menuId&&!e.target.closest('.menu')){S.menuId=null;render();} return; }
+  if(el.tagName==='A') e.preventDefault();
+  if(el.dataset.act==='pri') {} // radio se maneja abajo
+  const id=el.dataset.id?+el.dataset.id:null, k=el.dataset.k, l=el.dataset.l, i=el.dataset.i!=null?+el.dataset.i:null;
+  const d=S.draft;
+  switch(el.dataset.act){
+    case 'trayPick': S.applied=id; break;
+    case 'icon': d.icon=el.dataset.v||''; break;
+    case 'tab': S.tab=el.dataset.v; break;
+    case 'newOpen': S.chooser=S.chooser?null:'open'; break;
+    case 'newClose': S.chooser=null; break;
+    case 'newCopyPick': S.chooser='copy'; break;
+    case 'newNow': openEditor(blankScene(byId(S.applied)),true); break;
+    case 'newCopy': openEditor(blankScene(byId(id)),true); break;
+    case 'newBlank': openEditor(blankScene(null),true); break;
+    case 'apply': S.applied=id; toast('Puesta: '+byId(id).name); return;
+    case 'edit': openEditor(byId(id),false); break;
+    case 'menu': S.menuId=S.menuId===id?null:id; S.confirmDel=null; break;
+    case 'dup': { const s=byId(id), c=clone(s); c.id=++uid; c.name=s.name+' (copia)'; c.shortcut=''; c.boot=false;
+      S.scenes.splice(S.scenes.indexOf(s)+1,0,c); openEditor(c,false); break; }
+    case 'rename': { const s=byId(id); S.menuId=null; render(); const n=prompt('Nuevo nombre de la escena',s.name); if(n&&n.trim()) s.name=n.trim(); break; }
+    case 'delAsk': S.confirmDel=id; S.menuId=null; break;
+    case 'delNo': S.confirmDel=null; break;
+    case 'delYes': S.scenes=S.scenes.filter(s=>s.id!==id); if(S.applied===id) S.applied=null; S.confirmDel=null; toast('Borrada'); return;
+    case 'up': move(id,-1); break;
+    case 'down': move(id,1); break;
+    case 'back': case 'cancel':
+      if(isDirty()){ S.confirmCancel=true; break; }
+      S.view='list'; S.draft=null; break;
+    case 'discardYes': S.view='list'; S.draft=null; S.confirmCancel=false; break;
+    case 'discardNo': S.confirmCancel=false; break;
+    case 'monOn': d.mon[k].on=true; if(k!=='pro'&&!d.mon[d.primary].on) d.primary=k; break;
+    case 'monOff': d.mon[k].on=false; if(d.primary===k){ const n=ORDER.find(o=>d.mon[o].on); if(n) d.primary=n; } break;
+    case 'pri': d.primary=k; break;
+    case 'copyLive': { const live=byId(S.applied); if(live){ d.mon=clone(live.mon); d.primary=live.primary; d.pos=clone(live.pos); } break; }
+    case 'actEdit': S.editAct=(S.editAct&&S.editAct.list===l&&S.editAct.i===i)?null:{list:l,i}; break;
+    case 'actOk': S.editAct=null; break;
+    case 'actUp': { const a=d[l]; [a[i-1],a[i]]=[a[i],a[i-1]]; S.editAct=null; break; }
+    case 'actDown': { const a=d[l]; [a[i+1],a[i]]=[a[i],a[i+1]]; S.editAct=null; break; }
+    case 'actDel': d[l].splice(i,1); S.editAct=null; break;
+    case 'rec': S.recording=true; break;
+    case 'unrec': d.shortcut=''; break;
+    case 'shOn': S.shortcutsOn=true; break;
+    case 'probar': startTest(); break;
+    case 'testKeep': stopTest('Te quedaste con la prueba. Falta GUARDAR'); return;
+    case 'testBack': stopTest(); return;
+    case 'save': {
+      const dd=clone(d); if(!dd.name.trim()) dd.name='Escena nueva';
+      if(dd.boot) S.scenes.forEach(s=>{ if(s.id!==dd.id) s.boot=false; });
+      const idx=S.scenes.findIndex(s=>s.id===dd.id);
+      if(idx>=0) S.scenes[idx]=dd; else S.scenes.push(dd);
+      S.view='list'; S.draft=null; toast('Guardada'); return;
+    }
+  }
+  render();
+});
+
+document.addEventListener('change',e=>{
+  const t=e.target, d=S.draft;
+  if(t.dataset.fld && t.tagName==='SELECT'){ d[t.dataset.l][+t.dataset.i][t.dataset.fld]=t.value; render(); return; }
+  if(t.id==='f-boot'){ d.boot=t.checked; render(); return; }
+  if(t.dataset.act==='pri'){ d.primary=t.dataset.k; render(); return; }
+  if(t.dataset.sel==='res'){ d.mon[t.dataset.k].res=t.value; render(); }
+  else if(t.dataset.sel==='audio'){ d.audio=t.value; render(); }
+  else if(t.dataset.sel==='addAct' && t.value){
+    const a={t:t.value}; ACT_TYPES[t.value].fields.forEach(([key,,,,def])=>a[key]=def);
+    d[t.dataset.l].push(a); S.editAct=ACT_TYPES[t.value].fields.length?{list:t.dataset.l,i:d[t.dataset.l].length-1}:null; render();
+  }
+});
+document.addEventListener('input',e=>{
+  const t=e.target, d=S.draft; if(!d) return;
+  if(t.id==='f-name') d.name=t.value;
+  else if(t.dataset.fld) d[t.dataset.l][+t.dataset.i][t.dataset.fld]=t.value;
+  else return;
+  const el=document.getElementById('dirtyTxt'); if(el) el.textContent=isDirty()?'• cambios sin guardar':'';
+  if(t.id!=='f-name'){ /* actualiza la etiqueta de la acción sin perder el foco */
+    const lbl=t.closest('.form')&&t.closest('.form').previousElementSibling&&t.closest('.form').previousElementSibling.querySelector('.t');
+    if(lbl) lbl.textContent=actLabel(d[t.dataset.l][+t.dataset.i]);
+  }
+});
+/* grabar atajo */
+document.addEventListener('keydown',e=>{
+  if(!S.recording) return;
+  e.preventDefault();
+  if(e.key==='Escape'){ S.recording=false; render(); return; }
+  if(['Control','Alt','Shift','Meta'].includes(e.key)) return;
+  const parts=[]; if(e.ctrlKey) parts.push('Ctrl'); if(e.altKey) parts.push('Alt'); if(e.shiftKey) parts.push('Shift');
+  if(!parts.length) return;
+  parts.push(e.key.length===1?e.key.toUpperCase():e.key);
+  S.draft.shortcut=parts.join('+'); S.recording=false; render();
+});
+
+/* reordenar arrastrando el asa ⠿ */
+let dragId=null;
+document.addEventListener('mousedown',e=>{
+  const h=e.target.closest('[data-handle]'); if(!h) return;
+  const card=h.closest('.card'); card.draggable=true;
+  card.addEventListener('dragend',()=>{card.draggable=false;},{once:true});
+});
+document.addEventListener('dragstart',e=>{ const c=e.target.closest&&e.target.closest('[data-scene]'); if(c){dragId=+c.dataset.scene; e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain','x');} });
+document.addEventListener('dragover',e=>{ const c=e.target.closest('[data-scene]'); if(c&&dragId!=null){ e.preventDefault(); document.querySelectorAll('.dragover').forEach(x=>x.classList.remove('dragover')); c.classList.add('dragover'); } });
+document.addEventListener('drop',e=>{
+  const c=e.target.closest('[data-scene]'); if(!c||dragId==null) return; e.preventDefault();
+  const to=+c.dataset.scene; if(to!==dragId){
+    const from=S.scenes.findIndex(s=>s.id===dragId), target=S.scenes.findIndex(s=>s.id===to);
+    const [s]=S.scenes.splice(from,1);
+    S.scenes.splice(target,0,s); // queda en el lugar de la tarjeta soltada
+  }
+  dragId=null; render();
+});
+document.addEventListener('dragend',()=>{ dragId=null; document.querySelectorAll('.dragover').forEach(x=>x.classList.remove('dragover')); });
+
+render();
+</script>
+</body>
+</html>
