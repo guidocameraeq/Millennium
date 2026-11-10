@@ -323,3 +323,27 @@ fn sin_placas_reales_no_hay_hello_dirigido() {
     // Queda solo el 255.255.255.255 de siempre (lo manda udp_discovery aparte).
     assert!(hello_targets(&[], ASSUMED_PREFIX).is_empty());
 }
+
+// --- peer_fate: favorito offline, no favorito afuera ---
+
+use crate::net_ifaces::{peer_fate, PeerFate};
+
+#[test]
+fn peer_con_hello_reciente_esta_online_sea_favorito_o_no() {
+    assert_eq!(peer_fate(3, 15, false), PeerFate::Online);
+    assert_eq!(peer_fate(3, 15, true), PeerFate::Online);
+    assert_eq!(peer_fate(14, 15, true), PeerFate::Online);
+}
+
+#[test]
+fn favorito_vencido_queda_offline_y_sigue_en_el_mapa() {
+    assert_eq!(peer_fate(15, 15, true), PeerFate::Offline);
+    assert_eq!(peer_fate(3600, 15, true), PeerFate::Offline);
+}
+
+#[test]
+fn no_favorito_vencido_desaparece_a_los_15_s() {
+    assert_eq!(peer_fate(15, 15, false), PeerFate::Gone);
+    assert_eq!(peer_fate(16, 15, false), PeerFate::Gone);
+    assert_eq!(peer_fate(3600, 15, false), PeerFate::Gone);
+}
