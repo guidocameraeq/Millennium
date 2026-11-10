@@ -13,6 +13,7 @@ use crate::preferences::PreferencesStore;
 use mdns_sd::{IfKind, ServiceDaemon, ServiceEvent, ServiceInfo};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
@@ -260,37 +261,27 @@ pub fn start(
 ) -> Result<DiscoveryState, mdns_sd::Error> {
     let daemon = ServiceDaemon::new()?;
 
-    // Add the resolved local IP as an explicit interface, but keep the
-    // mdns-sd default (every IPv4 interface) active as a fallback.
-    // Previously we did disable_interface(All) + enable(local_ip),
-    // which on machines with WSL/Hyper-V/Docker/VPN routinely picked
-    // the wrong NIC (because local_ip_address::local_ip() returns the
-    // lowest-metric route, often a virtual one). Result: announcements
-    // went out the virtual switch and no peer ever saw us.
-    if let Ok(local_ip) = identity.local_ip.parse::<std::net::IpAddr>() {
-        match daemon.enable_interface(IfKind::Addr(local_ip)) {
-            Ok(_) => crate::runtime_log::info(format!(
-                "[mdns] explicitly enabled interface {}",
-                local_ip
-            )),
-            Err(e) => crate::runtime_log::warn(format!(
-                "[mdns] enable_interface({}) failed (keeping defaults): {}",
-                local_ip, e
-            )),
-        }
-    } else {
-        crate::runtime_log::warn(format!(
-            "[mdns] could not parse local_ip='{}', using default bind",
-            identity.local_ip
-        ));
+    // Listen and answer ONLY on the real LAN adapters (`net_ifaces` rule),
+    // each announced with its own address. mdns-sd 0.13 defaults to every
+    // interface (WSL, Hyper-V, Docker, VPN and IPv6 included), sends each
+    // query out all of them and answers every query it hears on each one:
+    // that multiplication was the v1.5.2 mDNS storm (puesta-a-punto,
+    // encargo 01 evidence). This is NOT the old disable(All) + the single
+    // routing-table IP, which picked a virtual NIC on WSL/Hyper-V machines
+    // so no peer ever saw us: every real adapter stays enabled, and
+    // `local_ip` alone is used only when the rule keeps none.
+    let initial_ips = mdns_ips(&identity.local_ip);
+    if let Err(e) = daemon.disable_interface(IfKind::All) {
+        crate::runtime_log::warn(format!("[mdns] disable_interface(All) failed: {}", e));
     }
+    set_mdns_ifaces(&daemon, &initial_ips, true);
 
     let peers: PeerMap = Arc::new(Mutex::new(HashMap::new()));
     let fullnames: FullnameMap = Arc::new(Mutex::new(HashMap::new()));
     let current_ip: Arc<Mutex<String>> = Arc::new(Mutex::new(identity.local_ip.clone()));
     let probe_wake = Arc::new(tokio::sync::Notify::new());
 
-    register_self(&daemon, identity, port)?;
+    let initial_fullname = register_self(&daemon, identity, &initial_ips, port)?;
 
     let receiver = daemon.browse(SERVICE_TYPE)?;
 
@@ -649,9 +640,10 @@ pub fn start(
     }
 
     // (C) Network-change watcher (Tarea 1.7). Every 30 s recompute the
-    //     preferred local IP; if it moved (Wi-Fi roam, dock/undock, VPN
-    //     up/down), re-enable that interface on the mDNS daemon and
-    //     re-announce with the fresh A-record. The UDP broadcaster needs no
+    //     preferred local IP and the real adapters; if they moved (Wi-Fi
+    //     roam, dock/undock, VPN up/down), say goodbye on the old ones,
+    //     move the mDNS daemon to the new set and re-announce with the
+    //     fresh A-records. The UDP broadcaster needs no
     //     restart — it binds 0.0.0.0 and sends to the limited broadcast, so
     //     its source IP follows the OS automatically, and peers already
     //     learn our new IP from that datagram's source (Tarea 1.1). This
@@ -662,6 +654,8 @@ pub fn start(
         let mut identity = identity.clone();
         let bind_port = port;
         let current_ip = current_ip.clone();
+        let mut ips = initial_ips;
+        let mut fullname = initial_fullname;
         tauri::async_runtime::spawn(async move {
             use std::time::Duration;
             let mut watch = tokio::time::interval(Duration::from_secs(30));
@@ -671,30 +665,40 @@ pub fn start(
                 watch.tick().await;
                 // NIC enumeration is a blocking syscall (GetAdaptersAddresses
                 // on Windows) — keep it off the reactor.
-                let fresh = tokio::task::spawn_blocking(crate::identity::compute_local_ip)
-                    .await
-                    .unwrap_or_default();
-                if fresh.is_empty() || fresh == identity.local_ip {
+                let (fresh, fresh_ips) = tokio::task::spawn_blocking(|| {
+                    let ip = crate::identity::compute_local_ip();
+                    let ips = mdns_ips(&ip);
+                    (ip, ips)
+                })
+                .await
+                .unwrap_or_default();
+                let diff = crate::net_ifaces::diff_ips(&ips, &fresh_ips);
+                if fresh.is_empty() || (fresh == identity.local_ip && diff.is_empty()) {
                     continue;
                 }
                 crate::runtime_log::info(format!(
-                    "[net] local IP changed {} -> {}; re-announcing mDNS",
-                    identity.local_ip, fresh
+                    "[net] local IP {} -> {}, mDNS adapters {:?} -> {:?}; re-announcing mDNS",
+                    identity.local_ip, fresh, ips, fresh_ips
                 ));
                 identity.local_ip = fresh.clone();
                 // Publish the new IP so get_local_info / QR pairing reflect the
                 // roam instead of the boot-time IP frozen in AppState.identity.
                 *current_ip.lock().unwrap() = fresh;
-                if let Ok(ip) = identity.local_ip.parse::<std::net::IpAddr>() {
-                    if let Err(e) = daemon.enable_interface(IfKind::Addr(ip)) {
-                        crate::runtime_log::warn(format!(
-                            "[net] enable_interface({}) failed: {}",
-                            ip, e
-                        ));
-                    }
+                // Goodbye on the old adapters while they are still enabled.
+                // The daemon repeats it 120 ms later, so wait that out before
+                // the new announcement or peers would drop it as a goodbye.
+                if let Err(e) = daemon.unregister(&fullname) {
+                    crate::runtime_log::warn(format!("[net] mDNS unregister failed: {}", e));
                 }
-                if let Err(e) = register_self(&daemon, &identity, bind_port) {
-                    crate::runtime_log::warn(format!("[net] mDNS re-register failed: {}", e));
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                set_mdns_ifaces(&daemon, &diff.gone, false);
+                set_mdns_ifaces(&daemon, &diff.added, true);
+                ips = fresh_ips;
+                match register_self(&daemon, &identity, &ips, bind_port) {
+                    Ok(name) => fullname = name,
+                    Err(e) => {
+                        crate::runtime_log::warn(format!("[net] mDNS re-register failed: {}", e))
+                    }
                 }
             }
         });
@@ -714,8 +718,14 @@ pub fn start(
     })
 }
 
-pub fn rebrowse(state: &DiscoveryState) -> Result<(), mdns_sd::Error> {
-    state.daemon.browse(SERVICE_TYPE).map(|_| ())
+/// REFRESH button. Deliberately does not touch the mDNS daemon: in mdns-sd
+/// 0.13 a second `browse` either dies at once (its receiver dropped, so
+/// nothing is sent) or, if the receiver were kept, REPLACES the listener of
+/// the browse started in `start` and that loop stops getting events. The
+/// live browse keeps querying on its own; the button's real work is the
+/// `wake_probes` that `rescan_peers` (lib.rs) calls right after this.
+pub fn rebrowse(_state: &DiscoveryState) -> Result<(), mdns_sd::Error> {
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -782,7 +792,55 @@ fn sanitize_hostname(s: &str) -> String {
     }
 }
 
-fn register_self(daemon: &ServiceDaemon, id: &Identity, port: u16) -> Result<(), mdns_sd::Error> {
+/// The IPs the mDNS daemon listens and answers on: every real LAN adapter
+/// (`net_ifaces` rule), in the system's order. When the rule keeps none,
+/// `fallback` (the IP identity resolved, maybe the routing-table one), so an
+/// odd adapter name never leaves the daemon deaf. Blocking (NIC enumeration).
+fn mdns_ips(fallback: &str) -> Vec<IpAddr> {
+    let mut ips: Vec<IpAddr> = local_ip_address::list_afinet_netifas()
+        .map(|ifaces| crate::net_ifaces::classify_ifaces(&ifaces).used)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(_, ip)| IpAddr::V4(ip))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    ips.retain(|ip| seen.insert(*ip));
+    if ips.is_empty() {
+        if let Ok(ip) = fallback.parse::<IpAddr>() {
+            ips.push(ip);
+        }
+    }
+    ips
+}
+
+/// Enable (`on`) or disable each of `ips` on the daemon, logging each one.
+fn set_mdns_ifaces(daemon: &ServiceDaemon, ips: &[IpAddr], on: bool) {
+    for ip in ips {
+        let res = if on {
+            daemon.enable_interface(IfKind::Addr(*ip))
+        } else {
+            daemon.disable_interface(IfKind::Addr(*ip))
+        };
+        let verb = if on { "enable" } else { "disable" };
+        match res {
+            Ok(_) => crate::runtime_log::info(format!("[mdns] {}d interface {}", verb, ip)),
+            Err(e) => crate::runtime_log::warn(format!(
+                "[mdns] {}_interface({}) failed: {}",
+                verb, ip, e
+            )),
+        }
+    }
+}
+
+/// Announce ourselves on `ips` (one A-record per real adapter; the daemon
+/// sends each adapter only the address of its own subnet). Returns the
+/// service fullname, needed to `unregister` it on a network change.
+fn register_self(
+    daemon: &ServiceDaemon,
+    id: &Identity,
+    ips: &[IpAddr],
+    port: u16,
+) -> Result<String, mdns_sd::Error> {
     let mut props = HashMap::new();
     props.insert("id".to_string(), id.fingerprint.clone());
     props.insert("alias".to_string(), id.alias.clone());
@@ -797,23 +855,25 @@ fn register_self(daemon: &ServiceDaemon, id: &Identity, port: u16) -> Result<(),
     // anything else from the user alias before using it.
     let host = sanitize_hostname(&id.alias);
 
+    let addrs: Vec<String> = ips.iter().map(|ip| ip.to_string()).collect();
     let service = ServiceInfo::new(
         SERVICE_TYPE,
         &instance_name,
         &format!("{}.local.", host),
-        id.local_ip.as_str(),
+        addrs.join(",").as_str(),
         port,
         Some(props),
     )?;
+    let fullname = service.get_fullname().to_string();
     daemon.register(service)?;
     crate::runtime_log::info(format!(
-        "[mdns] registered {} on {}:{} (fp={})",
+        "[mdns] registered {} on {:?} port {} (fp={})",
         instance_name,
-        id.local_ip,
+        addrs,
         port,
         &id.fingerprint[..16]
     ));
-    Ok(())
+    Ok(fullname)
 }
 
 fn handle_event(

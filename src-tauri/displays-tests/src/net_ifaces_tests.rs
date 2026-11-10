@@ -134,3 +134,37 @@ fn sin_placas_reales_no_usa_ninguna() {
     assert_eq!(c.discarded.len(), 2);
     assert!(classify_ifaces(&[]).used.is_empty());
 }
+
+// --- diff_ips: qué placas se fueron y cuáles llegaron (watcher de red) ---
+
+use crate::net_ifaces::diff_ips;
+
+#[test]
+fn mismas_placas_en_otro_orden_no_es_cambio() {
+    let a = [v4(192, 168, 1, 42), v4(192, 168, 0, 10)];
+    let b = [v4(192, 168, 0, 10), v4(192, 168, 1, 42)];
+    assert!(diff_ips(&a, &b).is_empty());
+    assert!(diff_ips(&a, &a).is_empty());
+}
+
+#[test]
+fn roam_de_wifi_saca_la_vieja_y_suma_la_nueva() {
+    let d = diff_ips(&[v4(192, 168, 1, 42)], &[v4(10, 0, 0, 7)]);
+    assert_eq!(d.gone, vec![v4(192, 168, 1, 42)]);
+    assert_eq!(d.added, vec![v4(10, 0, 0, 7)]);
+    assert!(!d.is_empty());
+}
+
+#[test]
+fn enchufar_ethernet_solo_suma() {
+    let d = diff_ips(&[v4(192, 168, 1, 42)], &[v4(192, 168, 0, 10), v4(192, 168, 1, 42)]);
+    assert!(d.gone.is_empty());
+    assert_eq!(d.added, vec![v4(192, 168, 0, 10)]);
+}
+
+#[test]
+fn desenchufar_ethernet_solo_saca() {
+    let d = diff_ips(&[v4(192, 168, 0, 10), v4(192, 168, 1, 42)], &[v4(192, 168, 1, 42)]);
+    assert_eq!(d.gone, vec![v4(192, 168, 0, 10)]);
+    assert!(d.added.is_empty());
+}

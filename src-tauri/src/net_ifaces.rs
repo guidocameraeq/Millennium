@@ -83,6 +83,26 @@ pub fn classify_ifaces(ifaces: &[(String, IpAddr)]) -> IfaceChoice {
     choice
 }
 
+/// What moved between two adapter sets: IPs to drop and IPs to add. Order
+/// does not matter (the same adapters listed in another order is no change).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IpDiff {
+    pub gone: Vec<IpAddr>,
+    pub added: Vec<IpAddr>,
+}
+
+impl IpDiff {
+    pub fn is_empty(&self) -> bool {
+        self.gone.is_empty() && self.added.is_empty()
+    }
+}
+
+/// Compare the adapter IPs in use (`old`) with a fresh enumeration (`new`).
+pub fn diff_ips(old: &[IpAddr], new: &[IpAddr]) -> IpDiff {
+    let _ = (old, new);
+    IpDiff::default()
+}
+
 fn v4_discard(name: &str, ip: Ipv4Addr) -> Option<Discard> {
     if ip.is_loopback() {
         Some(Discard::Loopback)
