@@ -384,10 +384,10 @@ pub async fn upload_file(
         {
             Ok(()) => return Ok(()),
             Err(e) if attempt < MAX_ATTEMPTS => {
-                eprintln!(
-                    "[upload] attempt {}/{} for {} failed: {} — retrying",
-                    attempt, MAX_ATTEMPTS, file_id, e
-                );
+                crate::runtime_log::warn(format!(
+                    "[upload] attempt {}/{} to {}:{} for {} failed: {:#} — retrying",
+                    attempt, MAX_ATTEMPTS, ip, port, file_id, e
+                ));
                 tokio::time::sleep(std::time::Duration::from_millis(800 * attempt as u64)).await;
                 continue;
             }
@@ -423,10 +423,10 @@ async fn upload_file_once(
         file.seek(std::io::SeekFrom::Start(resume_from))
             .await
             .with_context(|| format!("seek to {} in {}", resume_from, path.display()))?;
-        eprintln!(
-            "[upload] resuming {} from byte {} of {}",
-            file_id, resume_from, total
-        );
+        crate::runtime_log::info(format!(
+            "[upload] resuming {} to {}:{} from byte {} of {}",
+            file_id, ip, port, resume_from, total
+        ));
     } else if resume_from >= total && total > 0 {
         // The receiver already has the whole thing. Just confirm.
         let _ = app.emit(

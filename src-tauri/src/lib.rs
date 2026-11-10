@@ -19,6 +19,7 @@ mod http_server;
 mod icon_overrides;
 mod identity;
 mod json_store;
+mod log_format;
 mod manual_peers;
 mod mdns_meter;
 mod net_ifaces;
@@ -128,7 +129,7 @@ fn toggle_favorite(
     } else {
         state.prefs.remove_favorite(&peer_id).map_err(|e| format!("{e:#}"))?;
     }
-    println!("[backend] toggle_favorite → peer={} value={}", peer_id, value);
+    runtime_log::info(format!("[backend] toggle_favorite → peer={} value={}", peer_id, value));
     state.discovery.emit_snapshot(&app);
     Ok(())
 }
@@ -152,13 +153,12 @@ async fn send_text(
         .cloned()
         .ok_or_else(|| format!("peer {} not on the grid", peer_id))?;
 
-    println!(
-        "[backend] send_text → peer={} ({}:{}) chars={}",
-        target.name,
-        target.ip,
+    runtime_log::info(log_format::send_text_line(
+        &target.name,
+        &target.ip,
         target.port,
-        text.chars().count()
-    );
+        text.chars().count(),
+    ));
 
     // No pre-send /info probe anymore: the TLS handshake is pinned to
     // peer_id (Fase 3, Tarea 3.1), so post_text only completes if the cert
@@ -175,7 +175,16 @@ async fn send_text(
         &peer_id,
     )
     .await
-    .map_err(|e| format!("send failed: {e:#}"))?;
+    .map_err(|e| {
+        runtime_log::err(log_format::send_failed_line(
+            "text",
+            &target.name,
+            &target.ip,
+            target.port,
+            &format!("{e:#}"),
+        ));
+        format!("send failed: {e:#}")
+    })?;
 
     Ok(())
 }
@@ -250,14 +259,13 @@ async fn send_files(
         upload_plan.push((file_id, p, size));
     }
 
-    println!(
-        "[backend] send_files → peer={} ({}:{}) files={} session={}",
-        target.name,
-        target.ip,
+    runtime_log::info(log_format::send_files_line(
+        &target.name,
+        &target.ip,
         target.port,
         upload_plan.len(),
-        &session_id[..8]
-    );
+        &session_id,
+    ));
 
     // Ask the peer; this blocks until the user accepts/rejects/times out.
     let prep = http_client::prepare_upload(
@@ -271,7 +279,16 @@ async fn send_files(
         &peer_id,
     )
     .await
-    .map_err(|e| format!("prepare: {e:#}"))?;
+    .map_err(|e| {
+        runtime_log::err(log_format::send_failed_line(
+            "prepare",
+            &target.name,
+            &target.ip,
+            target.port,
+            &format!("{e:#}"),
+        ));
+        format!("prepare: {e:#}")
+    })?;
 
     // Upload each file (sequential; same Client → keep-alive).
     for (file_id, path, size) in &upload_plan {
@@ -291,7 +308,20 @@ async fn send_files(
             &peer_id,
         )
         .await
-        .map_err(|e| format!("upload {}: {e:#}", path.display()))?;
+        .map_err(|e| {
+            let file_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("?");
+            runtime_log::err(log_format::send_failed_line(
+                &format!("upload {}", file_name),
+                &target.name,
+                &target.ip,
+                target.port,
+                &format!("{e:#}"),
+            ));
+            format!("upload {}: {e:#}", path.display())
+        })?;
     }
 
     Ok(session_id)
@@ -565,10 +595,10 @@ async fn add_peer_by_ip(
     };
     state.manual.add(peer.clone()).map_err(|e| format!("{e:#}"))?;
     state.discovery.emit_snapshot(&app);
-    println!(
+    runtime_log::info(format!(
         "[backend] add_peer_by_ip → {} {}:{}",
         peer.alias, peer.ip, peer.port
-    );
+    ));
     Ok(peer)
 }
 
@@ -970,7 +1000,7 @@ fn spawn_clipboard_poller(
                                 http_client::post_clipboard(&ip, port, &text, &alias, &fp, &receiver_fp).await
                             {
                                 runtime_log::warn(format!(
-                                    "[clipboard] text sync to {}:{} failed: {}",
+                                    "[clipboard] text sync to {}:{} failed: {:#}",
                                     ip, port, e
                                 ));
                             }
@@ -985,7 +1015,7 @@ fn spawn_clipboard_poller(
                             .await
                             {
                                 runtime_log::warn(format!(
-                                    "[clipboard] image sync to {}:{} failed: {}",
+                                    "[clipboard] image sync to {}:{} failed: {:#}",
                                     ip, port, e
                                 ));
                             }
@@ -1008,7 +1038,7 @@ fn set_clipboard_sync(
         .clipboard
         .set(peer_id.clone(), enabled)
         .map_err(|e| format!("{e:#}"))?;
-    println!("[backend] set_clipboard_sync → peer={} enabled={}", peer_id, enabled);
+    runtime_log::info(format!("[backend] set_clipboard_sync → peer={} enabled={}", peer_id, enabled));
     state.discovery.emit_snapshot(&app);
     Ok(())
 }
@@ -2100,6 +2130,7 @@ pub fn run() {
                     requested_port, server_port
                 ));
             }
+            runtime_log::log_startup_diagnostic(&identity.local_ip, server_port);
             runtime_log::info(format!(
                 "[setup] spawning HTTPS server on 0.0.0.0:{}",
                 server_port

@@ -48,6 +48,13 @@ pub mod mdns_meter;
 #[cfg(test)]
 mod mdns_meter_tests;
 
+// El formato del log y la regla de rotación (encargo 02 de puesta-a-punto): puro.
+#[path = "../../src/log_format.rs"]
+pub mod log_format;
+
+#[cfg(test)]
+mod log_format_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
