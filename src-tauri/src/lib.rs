@@ -1725,6 +1725,7 @@ async fn displays_clear_profile_actions(
 
 #[tauri::command]
 fn record_frontend_log(level: String, msg: String) {
+    let msg = log_format::limit_ui_msg(&msg);
     match level.as_str() {
         "ERR" | "ERROR" | "err" | "error" => runtime_log::err(format!("[ui] {}", msg)),
         "WARN" | "warn" => runtime_log::warn(format!("[ui] {}", msg)),

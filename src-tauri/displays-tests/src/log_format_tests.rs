@@ -317,6 +317,23 @@ fn un_texto_sin_query_queda_igual() {
 }
 
 #[test]
+fn lo_que_manda_la_pantalla_se_recorta_a_300_caracteres() {
+    let largo = "á".repeat(1000);
+    let r = limit_ui_msg(&largo);
+    assert_eq!(r.chars().count(), MAX_UI_CHARS + 1);
+    assert!(r.ends_with('…'));
+    assert!(r.starts_with(&"á".repeat(MAX_UI_CHARS)));
+}
+
+#[test]
+fn un_mensaje_corto_de_la_pantalla_queda_igual() {
+    assert_eq!(limit_ui_msg("ERR transmit"), "ERR transmit");
+    let justo = "x".repeat(MAX_UI_CHARS);
+    assert_eq!(limit_ui_msg(&justo), justo);
+    assert_eq!(limit_ui_msg(""), "");
+}
+
+#[test]
 fn la_linea_de_recepcion_lleva_quien_y_cuanto() {
     assert_eq!(
         text_received_line("Notebook", "192.168.0.20", 5),
