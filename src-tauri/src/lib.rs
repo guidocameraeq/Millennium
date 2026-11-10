@@ -20,6 +20,8 @@ mod icon_overrides;
 mod identity;
 mod json_store;
 mod manual_peers;
+mod mdns_meter;
+mod net_ifaces;
 mod preferences;
 mod runtime_log;
 mod settings;
