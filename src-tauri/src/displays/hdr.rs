@@ -180,7 +180,7 @@ fn quedo_como_se_pidio(io: &mut dyn PantallasHdr, id: &DisplayId, prender: bool)
         if io.leer(id).map(|e| e.prendido) == Some(prender) {
             return true;
         }
-        if esperado >= ESPERA_DE_RELECTURA || true { // MUTANTE 3: no espera a que se vea
+        if esperado >= ESPERA_DE_RELECTURA {
             return false;
         }
         io.dormir(PAUSA_ENTRE_LECTURAS);
