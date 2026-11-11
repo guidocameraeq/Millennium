@@ -28,12 +28,24 @@ const VISTAS = {
   clip: [],
   'clip-all': ['.filter-btn[data-filter="all"]'],
   disp: ['[data-action="section-displays"]'],
-  'disp-perfiles': ['[data-action="section-displays"]', '.displays-tab[data-tab="profiles"]'],
+  'disp-lista': ['[data-action="section-displays"]', '.displays-tab[data-tab="list"]'],
+  // Pestaña ESCENAS (encargo 05). 'disp-perfiles' ya no existe: PERFILES pasó a ser ESCENAS (capturas/antes/ guarda la vieja).
+  'esc-lista': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]'],
+  'esc-menu': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more'],
+  'esc-borrar': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-del'],
+  'esc-nueva': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '#scenes-new'],
+  'esc-editor': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit'],
+  'esc-editor-apagadas': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-screens tr:nth-child(1) .scene-sw-btn:nth-child(2)', '.scene-screens tr:nth-child(2) .scene-sw-btn:nth-child(2)'],
+  // Alto de ventana más grande (ver ALTO): el editor entero en una sola PNG.
+  'esc-editor-largo': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit'],
+  'esc-probando': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-test'],
   'disp-ajustes': ['[data-action="section-displays"]', '.displays-tab[data-tab="settings"]'],
   'disp-lienzo': ['[data-action="section-displays"]', '.displays-tab[data-tab="canvas"]'],
 };
 // Los relojes de la app (diagnóstico a 1,5 s, status a 2,2 s) terminan antes;
 // se cuenta desde que la página terminó de cargar.
+// Vistas que se capturan con otra altura de ventana (por defecto 760).
+const ALTO = { 'esc-editor-largo': 2300 };
 const ESPERA_MS = 3500;
 const PLAZO_LLAMADA_MS = 30000;
 
@@ -184,6 +196,8 @@ async function capturar(destino, dir, vistas) {
     await c.llamar('Emulation.setDeviceMetricsOverride',
       { width: 1100, height: 760, deviceScaleFactor: 1, mobile: false });
     for (const vista of vistas) {
+      await c.llamar('Emulation.setDeviceMetricsOverride',
+        { width: 1100, height: ALTO[vista] || 760, deviceScaleFactor: 1, mobile: false });
       await c.llamar('Page.navigate', { url: aUrl(armarHtml(tmp, vista)) });
       for (let i = 0; i < 100 && (await evaluar(c, 'document.readyState')) !== 'complete'; i++) await dormir(100);
       await dormir(ESPERA_MS);
@@ -231,6 +245,24 @@ function cargaCompleta() {
   return ok;
 }
 
+// Las vistas de Clipboard no miran la sección Displays (está oculta ahí): lo que
+// se haga en esa pantalla no puede mover el gate de CLIP. Se saca su subárbol del
+// DOM y las líneas de estilos de sus elementos (y el número de línea, que se corre).
+function sinDisplaysDom(dom) {
+  const a = dom.indexOf('<section class="displays-section"');
+  const b = a < 0 ? -1 : dom.indexOf('</section>', a);
+  return a < 0 || b < 0 ? dom : dom.slice(0, a) + dom.slice(b + '</section>'.length);
+}
+function sinDisplaysEstilos(estilos, dom) {
+  const a = dom.indexOf('<section class="displays-section"');
+  const b = a < 0 ? -1 : dom.indexOf('</section>', a);
+  const lineas = estilos.split('\n');
+  const k = lineas.findIndex((l) => /^\d+ section#displays-section\b/.test(l));
+  if (a < 0 || b < 0 || k < 0) return estilos;
+  const n = (dom.slice(a, b + '</section>'.length).match(/<[a-zA-Z][^\s>\/]*/g) || []).length;
+  return lineas.slice(0, k).concat(lineas.slice(k + n)).map((l) => l.replace(/^\d+ /, '')).join('\n');
+}
+
 function comparar(dirDespues, vistas) {
   let ok = cargaCompleta();
   for (const vista of vistas) {
@@ -245,8 +277,16 @@ function comparar(dirDespues, vistas) {
       }
       // normalizar también al leer: git puede haber pasado "antes" a CRLF al
       // clonar en Windows, y la referencia se guardó con reglas más cortas.
-      const sa = norm(fs.readFileSync(a, 'utf8'));
-      const sd = norm(fs.readFileSync(d, 'utf8'));
+      let sa = norm(fs.readFileSync(a, 'utf8'));
+      let sd = norm(fs.readFileSync(d, 'utf8'));
+      if (vista.startsWith('clip') && (ext === 'dom.html' || ext === 'estilos.txt')) {
+        const domDe = (dir) => normalizar(fs.readFileSync(path.join(dir, vista + '.dom.html'), 'utf8'));
+        if (ext === 'dom.html') { sa = sinDisplaysDom(sa); sd = sinDisplaysDom(sd); }
+        else {
+          sa = sinDisplaysEstilos(sa, domDe(path.join(CAPTURAS, 'antes')));
+          sd = sinDisplaysEstilos(sd, domDe(dirDespues));
+        }
+      }
       const err = ext === 'dom.html' && /id="__errores__"[^>]*>([^<]+)/.exec(sd);
       if (err) {
         console.error('[' + vista + '] hubo un error JS: ' + err[1].split('\n')[0]);
