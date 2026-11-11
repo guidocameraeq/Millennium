@@ -154,3 +154,29 @@ fn la_lista_de_salida_se_valida_igual_que_la_de_entrada() {
         "esperar va de 1 a 30 segundos"
     );
 }
+
+// ── Sub-paso 3: cerrar nunca mata ───────────────────────────────────────────────────
+
+/// Cerrar manda el cierre amable y nada más. Esta prueba no corre Windows: mira el texto de
+/// `acciones.rs` y falla si aparece cualquier forma de terminar un proceso a la fuerza.
+#[test]
+fn cerrar_un_programa_no_tiene_ninguna_forma_de_matar_el_proceso() {
+    let fuente = include_str!("../../src/displays/acciones.rs");
+    let codigo: String = fuente
+        .lines()
+        .filter(|linea| !linea.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("
+")
+        .to_lowercase();
+    for prohibido in ["terminateprocess", "taskkill", ".kill(", "killprocess", "exitprocess"] {
+        assert!(
+            !codigo.contains(prohibido),
+            "acciones.rs no puede usar {prohibido}: cerrar es solo el cierre amable"
+        );
+    }
+    assert!(
+        codigo.contains("wm_close"),
+        "el cierre amable es WM_CLOSE; si cambió, esta prueba tiene que enterarse"
+    );
+}
