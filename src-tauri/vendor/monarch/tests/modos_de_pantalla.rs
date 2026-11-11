@@ -230,6 +230,58 @@ fn recordar_varias_pantallas_guarda_una_sola_vez() {
 }
 
 #[test]
+fn una_pantalla_sin_modos_no_frena_a_la_de_al_lado() {
+    // El lector manda primero la TV (sin modos, o sin EDID) y después el monitor: el monitor
+    // se anota igual y la TV conserva lo suyo.
+    let (mut manager, store) = manager_con(config_con_modos_de_la_tv());
+    let sin_edid = DisplayId {
+        adapter_luid: 1,
+        target_id: 9,
+        edid_hash: None,
+    };
+    let monitor = vec![modo(2560, 1440, 144_000)];
+    let cambio = manager
+        .remember_display_modes(&[
+            (id(2), "LG TV".to_string(), vec![]),
+            (sin_edid, "Panel".to_string(), modos_tv()),
+            (id(1), "Monitor".to_string(), monitor.clone()),
+        ])
+        .unwrap();
+    assert!(cambio);
+    assert_eq!(guardados(&store), 1);
+    let ajustes = manager.settings();
+    assert_eq!(ajustes.display_modes.get(&clave_tv()), Some(&modos_tv()));
+    assert_eq!(
+        ajustes
+            .display_modes
+            .get(&display_modes_key(&id(1), "Monitor").unwrap()),
+        Some(&monitor)
+    );
+}
+
+#[test]
+fn se_anotan_aunque_haya_una_confirmacion_pendiente() {
+    // Aplicar una escena que prende la TV dispara WM_DISPLAYCHANGE durante la cuenta
+    // regresiva: es la primera vez que la TV informa sus modos y no se puede perder.
+    let (mut manager, store) = manager_con(AppConfig::default());
+    let mut otra = layout_solo_monitor();
+    otra.outputs[0].resolution = Resolution {
+        width: 2560,
+        height: 1440,
+    };
+    manager.apply_draft(otra).unwrap();
+    assert!(manager.has_pending_confirmation());
+    let cambio = manager
+        .remember_display_modes(&[(id(2), "LG TV".to_string(), modos_tv())])
+        .unwrap();
+    assert!(cambio);
+    assert_eq!(
+        store.inner.load().unwrap().settings.display_modes.get(&clave_tv()),
+        Some(&modos_tv())
+    );
+}
+
+#[test]
 fn una_pantalla_sin_edid_no_se_recuerda() {
     let (mut manager, store) = manager_con(AppConfig::default());
     let sin_edid = DisplayId {
@@ -263,6 +315,35 @@ fn un_arranque_con_la_tv_apagada_no_borra_sus_modos() {
         store.inner.load().unwrap().settings.display_modes.get(&clave_tv()),
         Some(&modos_tv()),
         "el archivo escrito al arrancar conserva los modos de la TV"
+    );
+}
+
+#[test]
+fn un_arranque_con_la_tv_enchufada_y_apagada_no_borra_sus_modos() {
+    // El caso de todos los días: Windows ve la TV (conectada, sin fuente activa), así que el
+    // arranque reescribe su huella en `display_fingerprints`; el mapa de modos queda igual.
+    let store = CountingStore {
+        inner: MemoryConfigStore::new(config_con_modos_de_la_tv()),
+        saves: Arc::new(AtomicUsize::new(0)),
+    };
+    let mut tv = info(2, "LG TV");
+    tv.is_active = false;
+    tv.is_primary = false;
+    let backend =
+        MockBackend::new(vec![info(1, "Monitor"), tv], layout_solo_monitor()).unwrap();
+    let manager = MonarchDisplayManager::new(backend, store.clone()).unwrap();
+    assert!(
+        manager
+            .config()
+            .display_fingerprints
+            .iter()
+            .any(|f| f.display_id == id(2)),
+        "el arranque anotó la huella de la TV"
+    );
+    assert_eq!(manager.settings().display_modes.get(&clave_tv()), Some(&modos_tv()));
+    assert_eq!(
+        store.inner.load().unwrap().settings.display_modes.get(&clave_tv()),
+        Some(&modos_tv())
     );
 }
 
