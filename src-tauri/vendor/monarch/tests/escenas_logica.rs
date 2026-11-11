@@ -14,6 +14,26 @@ use monarch::{
     Profile, Resolution, SceneData, PRUEBA_PENDIENTE,
 };
 
+/// Un store que puede fallar a propósito (disco trabado).
+#[derive(Clone, Default)]
+struct FallaStore {
+    inner: MemoryConfigStore,
+    falla: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ConfigStore for FallaStore {
+    fn load(&self) -> Result<AppConfig, ManagerError> {
+        self.inner.load()
+    }
+
+    fn save(&self, config: &AppConfig) -> Result<(), ManagerError> {
+        if self.falla.load(Ordering::SeqCst) {
+            return Err(ManagerError::Backend("disco trabado".to_string()));
+        }
+        self.inner.save(config)
+    }
+}
+
 /// Un store en memoria que cuenta cuántas veces se guardó.
 #[derive(Clone, Default)]
 struct CountingStore {
@@ -631,4 +651,71 @@ fn guardar_ajustes_no_borra_los_emojis() {
         Some("🎮"),
         "trampa #1: update_settings vació profile_icons"
     );
+}
+
+// --- todo o nada ante un error de disco ------------------------------------------------
+
+#[test]
+fn si_el_disco_falla_la_memoria_no_queda_a_medio_cambiar() {
+    let backend = MockBackend::new(displays(), layout_dos()).unwrap();
+    let store = FallaStore {
+        inner: MemoryConfigStore::new(semilla()),
+        falla: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    let mut m = MonarchDisplayManager::new(backend, store.clone()).unwrap();
+    let antes = m.config().clone();
+    store.falla.store(true, Ordering::SeqCst);
+
+    let orden: Vec<String> = ["D", "C", "B", "A"].iter().map(|s| s.to_string()).collect();
+    assert!(m.rename_scene("A", "Otra").is_err());
+    assert!(m.duplicate_scene("A").is_err());
+    assert!(m.reorder_scenes(&orden).is_err());
+    assert!(m.upsert_scene(None, escena("Nueva", layout_dos())).is_err());
+    assert!(m.upsert_scene(Some("A"), escena("A2", layout_una())).is_err());
+    assert!(m.save_profile("Nueva", false).is_err());
+    assert_eq!(m.config(), &antes, "un error de disco dejó la memoria cambiada");
+}
+
+// --- sobras de escenas borradas --------------------------------------------------------
+
+#[test]
+fn renombrar_o_duplicar_hacia_un_nombre_con_sobras_no_las_hereda() {
+    let (mut m, _b, _s) = manager();
+    // Sobras de una escena "Cine" que se borró con una versión vieja.
+    let mut ajustes = m.settings().clone();
+    ajustes.profile_audio.insert("Cine".to_string(), audio());
+    ajustes.profile_icons.insert("Cine".to_string(), "🎬".to_string());
+    ajustes.profile_shortcuts.insert("Cine".to_string(), "Ctrl+Shift+9".to_string());
+    ajustes.profile_actions.insert("Cine".to_string(), acciones());
+    m.update_settings(ajustes).unwrap();
+
+    m.rename_scene("B", "Cine").unwrap();
+    let s = m.settings();
+    assert!(!s.profile_audio.contains_key("Cine"));
+    assert!(!s.profile_icons.contains_key("Cine"));
+    assert!(!s.profile_shortcuts.contains_key("Cine"));
+    assert!(!s.profile_actions.contains_key("Cine"));
+
+    // Lo mismo con la copia: sobras bajo "C (copia)".
+    let mut ajustes = m.settings().clone();
+    ajustes.profile_shortcuts.insert("C (copia)".to_string(), "Ctrl+Shift+8".to_string());
+    ajustes.startup_profile_name = Some("C (copia)".to_string());
+    m.update_settings(ajustes).unwrap();
+    m.duplicate_scene("C").unwrap();
+    let s = m.settings();
+    assert!(!s.profile_shortcuts.contains_key("C (copia)"), "la copia nació con atajo");
+    assert_eq!(s.startup_profile_name, None, "la copia nació como escena de arranque");
+}
+
+// --- el remapeo por EDID ---------------------------------------------------------------
+
+#[test]
+fn una_pantalla_con_otro_adaptador_pero_el_mismo_edid_si_esta_conectada() {
+    let (m, _b, _s) = manager();
+    let mut vieja = salida(2, true, false, 1920);
+    vieja.display_id.adapter_luid = 777; // el driver cambió el LUID
+    let layout = Layout {
+        outputs: vec![salida(1, true, true, 0), vieja],
+    };
+    assert!(m.unresolved_enabled_outputs(&layout).unwrap().is_empty());
 }

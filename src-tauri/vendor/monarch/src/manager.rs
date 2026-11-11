@@ -286,8 +286,8 @@ where
             layout,
         };
 
-        if let Some(existing) = self
-            .config
+        let mut config = self.config.clone();
+        if let Some(existing) = config
             .profiles
             .iter_mut()
             .find(|candidate| candidate.name == profile.name)
@@ -297,10 +297,10 @@ where
             }
             *existing = profile;
         } else {
-            self.config.profiles.push(profile);
+            config.profiles.push(profile);
         }
 
-        self.persist_config()
+        self.commit_config(config)
     }
 
     /// Crea o edita una escena COMPLETA (layout + sonido + acciones + atajo + emoji +
@@ -469,6 +469,8 @@ where
         let copia = copy_name(name, &self.config.profiles);
 
         let mut config = self.config.clone();
+        // Sobras de una escena borrada con ese nombre: la copia no hereda atajo ni arranque.
+        quitar_claves(&mut config, &copia);
         config.profiles.push(Profile {
             name: copia.clone(),
             layout: original.layout,
@@ -657,7 +659,7 @@ where
         let before = self.config.profiles.len();
         self.config.profiles.retain(|profile| profile.name != name);
         if self.config.profiles.len() == before {
-            return Err(ManagerError::NotFound(format!("profile '{name}'")));
+            return Err(no_existe(name));
         }
         self.persist_config()
     }
@@ -843,6 +845,8 @@ fn validate_scene_layout(layout: &Layout) -> Result<(), ManagerError> {
 /// en su lugar), atajo, sonido, acciones, emoji y la escena de arranque. Quien llama ya
 /// verificó que `from` existe y que `to` está libre.
 fn rename_in_config(config: &mut AppConfig, from: &str, to: &str) {
+    // Sobras de una escena borrada con el nombre de destino no se heredan.
+    quitar_claves(config, to);
     if let Some(profile) = config.profiles.iter_mut().find(|p| p.name == from) {
         profile.name = to.to_string();
     }
@@ -861,6 +865,19 @@ fn rename_in_config(config: &mut AppConfig, from: &str, to: &str) {
     }
     if settings.startup_profile_name.as_deref() == Some(from) {
         settings.startup_profile_name = Some(to.to_string());
+    }
+}
+
+/// Borra todo lo que cuelga de un nombre en los ajustes (atajo, sonido, acciones, emoji y
+/// arranque), sin tocar los perfiles.
+fn quitar_claves(config: &mut AppConfig, name: &str) {
+    let settings = &mut config.settings;
+    settings.profile_shortcuts.remove(name);
+    settings.profile_audio.remove(name);
+    settings.profile_actions.remove(name);
+    settings.profile_icons.remove(name);
+    if settings.startup_profile_name.as_deref() == Some(name) {
+        settings.startup_profile_name = None;
     }
 }
 
