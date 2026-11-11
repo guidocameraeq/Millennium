@@ -498,3 +498,54 @@ integración más delicado (cuándo corren las acciones).
 **Estado**: implementado y releaseado como prerelease `v1.5.0-beta.1` (2026-07-27). Verificado local (28 tests
 vendor, harness Win/Linux verde, E2E frontend) + build CI verde. En hardware: volumen + Big Picture OK; el
 resto de los criterios (Chrome, salida de escena, auto-revert) pendientes de probar antes del release final.
+
+
+## ADR-015 — Placas de red: mDNS y UDP usan solo las "reales", con una regla única
+
+**Contexto.** La app escuchaba mDNS en **todas** las placas (WSL, Hyper-V, Docker, VPN) y la CPU de la PC de Guido
+se iba por `ndis.sys`. El encargo 01 de `puesta-a-punto` leyó mdns-sd 0.13.11 (evidencia:
+`docs/modulos/puesta-a-punto/bitacora/2026-11-10-evidencia-01.md`): por defecto el daemon habilita todas las placas,
+manda cada pregunta por cada una, la oye de vuelta por el loopback del multicast y contesta **toda** pregunta que oye,
+aunque no tenga respuesta. Los paquetes crecen con (placas habilitadas) × (preguntas oídas en todas ellas). El
+re-registro y el `rebrowse` se descartaron como causa.
+
+**Decisión.**
+1. Una sola regla, pura y con tests, decide qué placa cuenta: `net_ifaces::classify_ifaces`. Se usa IPv4, privada
+   (RFC1918), no loopback, no 169.254 y de nombre no virtual (`vethernet`, `wsl`, `hyper-v`, `virtualbox`, `vmware`,
+   `vpn`, `tailscale`, `zerotier`, `docker`, `tun`, `tap`). La usan igual `identity` (qué IP se muestra y anuncia) y
+   `discovery` (en qué placas escucha y contesta el daemon mDNS).
+2. mDNS: `disable_interface(All)` y `enable_interface` por **cada** placa real (no una sola: eso hizo que antes nadie
+   viera a nadie). Si la regla no deja ninguna, se usa la IP de respaldo de `identity`. El servicio anuncia todas esas
+   IPs y el daemon manda en cada placa solo la de su subred. Si el conjunto de placas cambia, el watcher hace
+   `unregister`, espera 500 ms, ajusta las placas y vuelve a registrar.
+3. Cada arranque deja en el log una línea de diagnóstico con las placas vistas y por qué se descartó cada una
+   (ADR-016), y cada minuto el medidor anota los paquetes mDNS (`mdns_meter`).
+
+**Alternativas descartadas.** Una sola placa (rompe el descubrimiento en PCs con WSL/Hyper-V donde la buena no es la
+primera). Subir mdns-sd (queda como salida si, con una sola placa real, el medidor sigue mostrando demasiado).
+
+**Consecuencia.** Lo que la regla no ve queda fuera: una placa real con nombre raro se descarta solo si el nombre
+coincide con la lista (se prefiere un falso negativo, que anuncie de más, a descartar la única placa real). Android
+comparte `discovery.rs`: una IP 10.x de datos móviles pasaría la regla (pendiente en el TODO).
+
+## ADR-016 — El log de errores vive en disco, con fecha local, rota solo y nunca guarda contenido
+
+**Contexto.** "Un día anda, otro no": los errores de red se perdían (`println!` en un `.exe` de release no va a
+ningún lado) y el archivo `runtime.log` tenía hora UTC sin fecha, un solo respaldo y se callaba si no podía escribir.
+
+**Decisión.**
+1. **Dónde:** `%APPDATA%\com.guidocameraeq.millennium\runtime.log` (el nombre y lugar no cambian).
+2. **Formato:** `2026-11-10 23:14:05 [NIVEL] mensaje`, hora **local** de Windows (`GetLocalTime`, sin crate nuevo).
+   Fuera de Windows queda en UTC. Un mensaje de varias líneas se aplana a una. El panel de la app (el anillo en
+   memoria) sigue mostrando `HH:MM:SS.mmm` como antes. El texto sale de funciones puras en `log_format.rs`.
+3. **Rotación:** al pasar 5 MB, también en caliente, no solo al arrancar; 3 respaldos (`runtime.log.1..3`, el más
+   viejo se pierde). Disco máximo ≈ 20 MB.
+4. **Si no puede escribir** avisa **una vez** (stderr y el panel) en vez de callarse.
+5. **Todo el camino de red escribe ahí** (`runtime_log`, nunca `println!`): envío, recepción, handshake, pin del
+   certificado, reintentos y descubrimiento, con el peer (alias + IP:puerto) y la causa, en las dos PCs.
+6. **Nunca se escribe contenido.** Ni el texto mandado ni el portapapeles: solo tamaño en caracteres y nombre de
+   archivo. Las funciones que arman esas líneas reciben el tamaño, no el texto, y un test comprueba que un secreto no
+   aparece. Motivo: el log se pega en chats. Para depurar un envío de texto puntual no alcanza el log; es a propósito.
+
+**Consecuencia.** Quien lee el log busca por hora local; un alias o nombre de archivo con saltos de línea no puede
+falsificar una línea (se aplanan).

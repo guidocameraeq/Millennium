@@ -34,6 +34,36 @@ pub mod runtime_log {
 #[path = "../../src/json_store.rs"]
 pub mod json_store;
 
+// La regla de "placa real" (encargo 01 de puesta-a-punto): pura, sin red.
+#[path = "../../src/net_ifaces.rs"]
+pub mod net_ifaces;
+
+#[cfg(test)]
+mod net_ifaces_tests;
+
+// La dirección buena del peer entre las que anuncia mDNS (encargo 03).
+#[cfg(test)]
+mod peer_addr_tests;
+
+// El medidor de mDNS (mismo encargo): de las métricas del daemon, la línea del minuto.
+#[path = "../../src/mdns_meter.rs"]
+pub mod mdns_meter;
+
+#[cfg(test)]
+mod mdns_meter_tests;
+
+// El formato del log y la regla de rotación (encargo 02 de puesta-a-punto): puro.
+#[path = "../../src/log_format.rs"]
+pub mod log_format;
+
+#[cfg(test)]
+mod log_format_tests;
+
+// La vista de un monitor y sus funciones puras (encargo 06): antes sus tests vivían
+// en `displays/mod.rs` bajo `cfg(not(windows))` y no corrían en ningún lado.
+#[cfg(test)]
+mod displays_view_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -47,6 +77,9 @@ pub mod displays {
 
     #[path = "../../../src/displays/store.rs"]
     pub mod store;
+
+    #[path = "../../../src/displays/view.rs"]
+    pub mod view;
 
     #[path = "../../../src/displays/watchdog.rs"]
     pub mod watchdog;

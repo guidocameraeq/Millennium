@@ -5,7 +5,7 @@ nivel: estandar
 vars:
   proyecto: Millennium
   comando-setup: npm ci
-  comando-test: node .claude/scripts/estructura.cjs
+  comando-test: node .claude/scripts/estructura.cjs && node .claude/scripts/ci-verde.cjs --esperar --merge HEAD
 piezas:
   settings: {estado: molde+propio, hash: 8f78eb648c96}
   hook-arranque: {estado: molde, hash: 42d0c55756b4}

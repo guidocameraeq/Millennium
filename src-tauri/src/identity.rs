@@ -107,41 +107,15 @@ fn compute_alias() -> String {
         .to_uppercase()
 }
 
-/// Adapter names that are almost always virtual / tunnel NICs. WSL and
-/// Hyper-V expose "vEthernet (...)", VPNs surface as "VPN"/"tun"/"tap",
-/// etc. Deliberately conservative: a false negative just risks announcing
-/// on a virtual NIC (the old behaviour), while a false positive could
-/// discard the one real adapter — so we keep the list tight and fall back
-/// to the routing-table IP when nothing clean survives the filter.
-fn is_virtual_iface(name: &str) -> bool {
-    let n = name.to_lowercase();
-    n.contains("vethernet")
-        || n.contains("wsl")
-        || n.contains("hyper-v")
-        || n.contains("virtualbox")
-        || n.contains("vmware")
-        || n.contains("vpn")
-        || n.contains("tailscale")
-        || n.contains("zerotier")
-        || n.contains("docker")
-        || n.contains("loopback")
-        || n.contains("tun")
-        || n.contains("tap")
-}
-
 /// Pick the best local IPv4 from a list of (interface name, ip): the first
-/// private, non-loopback, non-virtual address. Pure — no OS access — so it
-/// can be unit-tested. Returns None when nothing clean is found (the caller
-/// then falls back to the routing-table IP).
+/// adapter `net_ifaces::classify_ifaces` keeps (private, non-loopback,
+/// non-virtual). Pure — no OS access. Returns None when nothing clean is
+/// found (the caller then falls back to the routing-table IP).
 fn pick_local_ipv4(ifaces: &[(String, IpAddr)]) -> Option<Ipv4Addr> {
-    ifaces.iter().find_map(|(name, ip)| match ip {
-        IpAddr::V4(v4)
-            if v4.is_private() && !v4.is_loopback() && !is_virtual_iface(name) =>
-        {
-            Some(*v4)
-        }
-        _ => None,
-    })
+    crate::net_ifaces::classify_ifaces(ifaces)
+        .used
+        .first()
+        .map(|(_, ip)| *ip)
 }
 
 /// Routing-table IP (lowest-metric route). Often a virtual NIC on machines

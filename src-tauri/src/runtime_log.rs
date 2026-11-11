@@ -8,7 +8,8 @@
 // All log entries also go to stderr — useful when running from a
 // terminal — but on a release Windows build with `windows_subsystem =
 // "windows"` stderr is effectively a black hole, so the buffer is the
-// real channel.
+// real channel. The file `<data_dir>/runtime.log` keeps them across
+// restarts; its line format and rotation rules live in `log_format`.
 
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
@@ -20,6 +21,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter};
 
+use crate::log_format;
+
 /// The `log-line` IPC event is only worth serializing + crossing the
 /// webview boundary while the log panel is actually visible. The
 /// in-memory buffer and the file appender run regardless.
@@ -30,12 +33,25 @@ pub fn set_panel_open(open: bool) {
 }
 
 const CAPACITY: usize = 5000;
-const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+
+/// Only the first failure to write the file is announced; after that the
+/// log keeps trying quietly (a full disk would otherwise repeat forever).
+static WRITE_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// The open `runtime.log`, the folder it lives in (to rotate) and its size.
+struct FileSink {
+    file: File,
+    dir: PathBuf,
+    size: u64,
+    /// The reopen after a rotation failed: `file` points at the null
+    /// device until the next line manages to reopen the real one.
+    parked: bool,
+}
 
 struct RuntimeLog {
     lines: Mutex<VecDeque<String>>,
     app: Mutex<Option<AppHandle>>,
-    file: Mutex<Option<File>>,
+    file: Mutex<Option<FileSink>>,
 }
 
 static LOG: OnceLock<RuntimeLog> = OnceLock::new();
@@ -52,45 +68,181 @@ pub fn bind_app(app: AppHandle) {
     *store().app.lock().unwrap() = Some(app);
 }
 
-/// Open `<data_dir>/runtime.log` for appending. If the existing file
-/// is over MAX_FILE_BYTES, rotate it to `runtime.log.1` first (single
-/// backup, no chained rotation — keeps disk usage bounded to ~10MB).
+/// Open `<data_dir>/runtime.log` for appending. If the existing file is
+/// over the limit, rotate it first (`runtime.log.1..3`, see `log_format`);
+/// `push` rotates again whenever a line would pass the limit.
 pub fn bind_file(data_dir: &Path) {
     let log_path: PathBuf = data_dir.join("runtime.log");
     if let Ok(meta) = std::fs::metadata(&log_path) {
-        if meta.len() > MAX_FILE_BYTES {
-            let backup = data_dir.join("runtime.log.1");
-            let _ = std::fs::remove_file(&backup);
-            let _ = std::fs::rename(&log_path, &backup);
+        if log_format::should_rotate(meta.len(), 0) && !rotate_files(data_dir) {
+            note_write_failure("could not rotate runtime.log (is another program holding it?)");
         }
     }
-    match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    {
-        Ok(mut f) => {
-            let _ = writeln!(
-                f,
+    match open_append(&log_path) {
+        Ok(f) => {
+            let size = f.metadata().map(|m| m.len()).unwrap_or(0);
+            let mut sink = FileSink {
+                file: f,
+                dir: data_dir.to_path_buf(),
+                size,
+                parked: false,
+            };
+            let header = format!(
                 "\n========== new run @ {} ==========",
-                iso_now()
+                log_format::format_stamp(&local_stamp())
             );
-            *store().file.lock().unwrap() = Some(f);
+            let _ = append_line(&mut sink, &header);
+            *store().file.lock().unwrap() = Some(sink);
         }
         Err(e) => {
-            eprintln!(
-                "[runtime_log] could not open {}: {}",
-                log_path.display(),
-                e
-            );
+            note_write_failure(&format!("could not open {}: {}", log_path.display(), e));
         }
     }
 }
 
+fn open_append(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().create(true).append(true).open(path)
+}
+
+/// Run the rotation plan of `log_format`. Returns false when the live file
+/// could not be moved to `.1` (another program holding it, a permission):
+/// the caller says so instead of letting the file grow unnoticed.
+fn rotate_files(dir: &Path) -> bool {
+    let (deletes, renames) = log_format::rotation_plan();
+    for name in deletes {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
+    let mut live_moved = true;
+    for (from, to) in renames {
+        let moved = std::fs::rename(dir.join(&from), dir.join(to));
+        if from == "runtime.log" {
+            // A missing live file is not a failure.
+            live_moved = match moved {
+                Ok(()) => true,
+                Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+            };
+        }
+    }
+    live_moved
+}
+
+/// Append one line, rotating first if it would pass the size limit.
+fn append_line(sink: &mut FileSink, line: &str) -> std::io::Result<()> {
+    let bytes = line.len() as u64 + 1;
+    if sink.parked {
+        // The last reopen failed: try only that, never rotate again.
+        sink.file = open_append(&sink.dir.join("runtime.log"))?;
+        sink.size = sink.file.metadata().map(|m| m.len()).unwrap_or(0);
+        sink.parked = false;
+    }
+    if log_format::should_rotate(sink.size, bytes) {
+        // Close the real handle before renaming: park a handle on the null
+        // device meanwhile.
+        let real = std::mem::replace(&mut sink.file, null_file()?);
+        drop(real);
+        let rotated = rotate_files(&sink.dir);
+        // Size first: we must not rotate again on the next line and push
+        // the backups out for nothing.
+        sink.size = 0;
+        sink.parked = true;
+        sink.file = open_append(&sink.dir.join("runtime.log"))?;
+        sink.parked = false;
+        if !rotated {
+            note_write_failure("could not rotate runtime.log (is another program holding it?)");
+        }
+    }
+    writeln!(sink.file, "{}", line)?;
+    sink.size += bytes;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn null_file() -> std::io::Result<File> {
+    OpenOptions::new().write(true).open("NUL")
+}
+
+#[cfg(not(windows))]
+fn null_file() -> std::io::Result<File> {
+    OpenOptions::new().write(true).open("/dev/null")
+}
+
+/// The first time the file cannot be written, say so on stderr and in the
+/// in-memory ring (what the log panel shows) instead of staying silent.
+fn note_write_failure(why: &str) {
+    if WRITE_WARNED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let msg = format!(
+        "[runtime_log] runtime.log cannot be written ({}); the file will miss lines, this panel keeps them",
+        why
+    );
+    eprintln!("{}", msg);
+    ring_push(format!("{} [WARN] {}", iso_now(), msg));
+}
+
+fn ring_push(line: String) {
+    let mut lines = store().lines.lock().unwrap();
+    if lines.len() >= CAPACITY {
+        lines.pop_front();
+    }
+    lines.push_back(line);
+}
+
+/// Local wall-clock time. Windows: `GetLocalTime` (kernel32, which std
+/// already links — no new crate). Elsewhere: UTC.
+#[cfg(windows)]
+fn local_stamp() -> log_format::Stamp {
+    #[repr(C)]
+    struct SysTime {
+        year: u16,
+        month: u16,
+        day_of_week: u16,
+        day: u16,
+        hour: u16,
+        minute: u16,
+        second: u16,
+        milliseconds: u16,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLocalTime(out: *mut SysTime);
+    }
+    let mut t = SysTime {
+        year: 0,
+        month: 0,
+        day_of_week: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        milliseconds: 0,
+    };
+    // SAFETY: GetLocalTime only fills the struct we pass, which has the
+    // layout of the Win32 SYSTEMTIME.
+    unsafe { GetLocalTime(&mut t) };
+    log_format::Stamp {
+        year: t.year as i32,
+        month: t.month as u32,
+        day: t.day as u32,
+        hour: t.hour as u32,
+        minute: t.minute as u32,
+        second: t.second as u32,
+    }
+}
+
+#[cfg(not(windows))]
+fn local_stamp() -> log_format::Stamp {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    log_format::stamp_from_unix(secs)
+}
+
 fn iso_now() -> String {
-    // Lightweight HH:MM:SS.mmm timestamp — UTC offset doesn't help here,
-    // the user just wants a relative timeline. UNIX seconds % day gives a
-    // wall-clock-ish reading with no chrono dep.
+    // Lightweight HH:MM:SS.mmm timestamp for the ring / log panel — UTC
+    // offset doesn't help here, the user just wants a relative timeline.
+    // UNIX seconds % day gives a wall-clock-ish reading with no chrono dep.
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
@@ -103,23 +255,29 @@ fn iso_now() -> String {
 }
 
 pub fn push(level: &str, msg: String) {
+    // The ring and the panel keep the short `HH:MM:SS.mmm` line; only the
+    // file gets the dated local-time one.
     let line = format!("{} [{}] {}", iso_now(), level, msg);
     eprintln!("{}", line);
     let s = store();
-    {
-        let mut lines = s.lines.lock().unwrap();
-        if lines.len() >= CAPACITY {
-            lines.pop_front();
-        }
-        lines.push_back(line.clone());
-    }
+    ring_push(line.clone());
     if PANEL_OPEN.load(Ordering::Relaxed) {
         if let Some(app) = s.app.lock().unwrap().as_ref() {
             let _ = app.emit("log-line", &line);
         }
     }
-    if let Some(f) = s.file.lock().unwrap().as_mut() {
-        let _ = writeln!(f, "{}", line);
+    let failed = {
+        let mut slot = s.file.lock().unwrap();
+        match slot.as_mut() {
+            Some(sink) => {
+                let file_line = log_format::format_line(&local_stamp(), level, &msg);
+                append_line(sink, &file_line).err()
+            }
+            None => None,
+        }
+    };
+    if let Some(e) = failed {
+        note_write_failure(&e.to_string());
     }
 }
 
@@ -144,6 +302,22 @@ pub fn dump_all() -> String {
 pub fn clear() {
     let s = store();
     s.lines.lock().unwrap().clear();
+}
+
+/// The startup diagnostic: version, adapters (used / discarded and why),
+/// the IP announced and the HTTPS port. Text built by `log_format`.
+pub fn log_startup_diagnostic(chosen_ip: &str, port: u16) {
+    let ifaces = match local_ip_address::list_afinet_netifas() {
+        Ok(list) => list,
+        Err(e) => {
+            err(format!("[diag] could not list network adapters: {}", e));
+            Vec::new()
+        }
+    };
+    let choice = crate::net_ifaces::classify_ifaces(&ifaces);
+    for line in log_format::startup_diagnostic(env!("CARGO_PKG_VERSION"), &choice, chosen_ip, port) {
+        info(line);
+    }
 }
 
 /// Snapshot every routable IPv4 interface the OS exposes. We need this

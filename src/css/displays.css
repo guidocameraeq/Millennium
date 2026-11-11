@@ -1,0 +1,665 @@
+/* Millennium Clipboard // GRID — estilos. Displays: lista, ATTACH/DETACH, pestañas, perfiles, ajustes y lienzo. */
+/* Hoja suelta: el orden de carga está en index.html. */
+
+/* ===========================================================================
+   DISPLAYS (SPEC-displays, Fase 2 — lectura + attach/detach con red)
+   Espeja el molde del modal LOG y la fila de peers. Paleta: las variables de
+   :root, sin colores sueltos.
+   =========================================================================== */
+/* SIN ESTO EL BOTON DISP NO SE OCULTA EN ANDROID.
+   El `hidden` del HTML se apoya en la regla `[hidden]{display:none}` de la hoja
+   del navegador, y CUALQUIER declaracion de `display` del autor le gana (origen
+   autor > origen user-agent, sin importar especificidad). `.hud-btn` declara
+   `display:inline-flex`, y `html.is-mobile .hud-btn` encima usa `!important` —
+   por eso esta regla tambien lo necesita. Sin ella, main.js revela el boton en
+   Windows pero NUNCA logra esconderlo en Android: se ve, se toca, y el invoke
+   devuelve el error de "solo existe en Windows".
+   El codebase ya tropezo con lo mismo: ver .backend-banner[hidden] y
+   .qr-pane[hidden]. */
+.hud-btn[hidden] { display: none !important; }
+
+/* Displays v2 Fase 2: displays dejó de ser un modal y es una sección a pantalla
+   completa. .displays-shell espeja el molde de .modal (mismo borde/sombra neón)
+   pero ocupa todo el alto de su celda en vez de flotar centrado. */
+.displays-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card-hi);
+  border: 1px solid var(--neon-cyan);
+  box-shadow:
+    0 0 48px var(--neon-cyan-glow),
+    inset 0 0 24px var(--neon-cyan-soft); /* SPEC-shell: token en vez de cyan crudo → vira con la app */
+}
+
+.displays-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.display-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+}
+
+.display-item.is-detached {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.display-glyph {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--neon-cyan);
+  flex: 0 0 auto;
+}
+
+.display-item.is-detached .display-glyph {
+  color: var(--text-dim);
+}
+
+.display-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.display-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.display-meta {
+  font-size: 11px;
+  color: var(--text-mute);
+  display: flex;
+  gap: 6px;
+}
+
+.display-sep { color: var(--text-dim); }
+
+.display-badges {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.display-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  letter-spacing: 1.5px;
+}
+
+.display-badge.active {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+
+.display-badge.primary {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+  background: rgba(255, 43, 214, 0.06);
+}
+
+.display-badge.detached {
+  border-color: var(--neon-cyan-soft);
+  color: var(--text-dim);
+  background: transparent;
+}
+
+.displays-empty {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+/* --- Fase 2: el boton ATTACH/DETACH de cada fila ------------------------- */
+.display-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Ancho fijo: ATTACH y DETACH tienen distinto largo y la fila no puede saltar
+   cada vez que un monitor cambia de estado. */
+.display-toggle-btn {
+  min-width: 86px;
+  text-align: center;
+}
+
+/* ★ primario (Displays v2, Fase 1): magenta como el badge PRIMARY, para que se
+   lea "esto lo hace primario". Se esconde en la fila apagada o ya primaria. */
+.display-primary-btn {
+  min-width: 92px;
+  text-align: center;
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+}
+.display-primary-btn:hover {
+  background: rgba(255, 43, 214, 0.08);
+}
+.display-primary-btn[hidden] {
+  display: none !important;
+}
+
+/* Un boton apagado tiene que LEERSE apagado: es el unico aviso de que ese
+   monitor no se puede tocar (es el ultimo activo, o hay un cambio pendiente).
+   Scoped al modal de displays para no tocar el resto de la app. */
+.displays-shell .modal-btn:disabled,
+.displays-shell .modal-btn:disabled:hover {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: transparent;
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+  text-shadow: none;
+  box-shadow: none;
+}
+
+/* La vieja barra de confirmación in-modal (.displays-pending*) se fue al banner
+   GLOBAL del auto-revert (.displays-banner*, arriba, cerca de .backend-banner)
+   en la Fase 2. Se borró de acá para no dejar CSS muerto. */
+
+/* Ventana angosta: la fila ya no entra en una linea con el boton, asi que el
+   boton baja en vez de aplastar el nombre del monitor. */
+@media (max-width: 560px) {
+  .display-item { flex-wrap: wrap; }
+  .display-actions { margin-left: auto; }
+}
+
+/* Cartel de datos falsos: tiene que gritar, para que nadie confunda una demo
+   con la maquina real. */
+.displays-mock-warning {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--neon-amber);
+  border: 1px dashed var(--neon-amber);
+  padding: 6px 8px;
+  margin: 0 0 10px 0;
+}
+
+/* ===========================================================================
+   DISPLAYS — Fase 3: pestañas, perfiles y ajustes
+   =========================================================================== */
+
+/* --- Pestañas ------------------------------------------------------------ */
+.displays-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--neon-cyan-soft);
+}
+
+.displays-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.displays-tab:hover { color: var(--text-bright); }
+
+.displays-tab.is-active {
+  color: var(--neon-cyan);
+  border-bottom-color: var(--neon-cyan);
+}
+
+/* Cada pane ocupa el body; solo se ve el activo. Mismo motivo de !important que
+   .hud-btn[hidden]: un `display` del autor le gana al [hidden] del user-agent. */
+.displays-pane[hidden] { display: none !important; }
+
+/* --- Perfiles ------------------------------------------------------------ */
+.displays-profile-save {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.displays-profile-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.displays-profile-name:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+.displays-profiles-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.displays-profile-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+}
+
+.displays-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.displays-profile-name-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.displays-profile-summary {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.displays-profile-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Displays v2, Fase 3: dropdown de salida de audio por perfil ("Sonido a:").
+   Reusa .displays-setting-select (borde cyan, mono) pero achicado para la fila. */
+.displays-profile-audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.displays-profile-audio-label {
+  font-size: 11px;
+  color: var(--text-mute);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.displays-profile-audio .displays-profile-audio-select {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+/* Displays v2, Fase 4: editor de escena por perfil (acciones de entrada/salida). */
+.displays-profile-scene {
+  margin-top: 3px;
+}
+.displays-scene-toggle {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-mute);
+  background: transparent;
+  border: 1px solid var(--grid-line-hot);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.displays-scene-toggle:hover:not(:disabled) {
+  color: var(--text-bright);
+  border-color: var(--neon-cyan-dim);
+}
+.displays-scene-toggle.has-scene {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan-dim);
+}
+.displays-scene-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.displays-scene-editor {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--grid-line);
+  border-radius: 5px;
+  background: var(--neon-cyan-soft);
+}
+.displays-scene-col {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.displays-scene-col-head {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.displays-scene-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.displays-scene-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.displays-scene-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--grid-line-hot);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.displays-scene-chip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-bright);
+}
+.displays-scene-chip-btn {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.displays-scene-chip-btn:hover:not(:disabled) {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan-dim);
+}
+.displays-scene-chip-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.displays-scene-add {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.displays-scene-preset {
+  font-size: 11px;
+  padding: 2px 6px;
+  width: 100%;
+}
+.displays-scene-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+.displays-scene-input {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  padding: 3px 6px;
+  color: var(--text-bright);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--neon-cyan-dim);
+  border-radius: 4px;
+}
+textarea.displays-scene-input {
+  resize: vertical;
+  min-height: 40px;
+}
+.displays-scene-input:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+.displays-scene-form-row {
+  display: flex;
+  gap: 6px;
+}
+
+/* Displays v2, Fase 1: botón de atajo por perfil. Neutro sin asignar; cyan con
+   una combinación puesta; magenta y latiendo mientras se está capturando. */
+.displays-profile-shortcut {
+  min-width: 96px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.displays-profile-shortcut.has-shortcut {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+.displays-profile-shortcut.capturing {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+  animation: displays-shortcut-pulse 1s ease-in-out infinite;
+}
+@keyframes displays-shortcut-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* --- Banner de confirmación (pisar / borrar un perfil) ------------------- */
+/* Ámbar como la barra de auto-revert: es una decisión destructiva que espera tu
+   OK. Tus perfiles son tus datos; nada se pisa sin pasar por acá. */
+.displays-confirm-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--neon-amber);
+  background: rgba(255, 179, 71, 0.08);
+}
+.displays-confirm-banner[hidden] { display: none !important; }
+
+.displays-confirm-text {
+  flex: 1 1 160px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--neon-amber);
+}
+
+.displays-confirm-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* --- Ajustes ------------------------------------------------------------- */
+.displays-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+}
+
+.displays-setting-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-bright);
+}
+
+.displays-setting-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.displays-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.displays-setting-input {
+  width: 84px;
+  background: var(--bg-deep, var(--bg-card));
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  text-align: right;
+}
+
+.displays-setting-input:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+/* Displays v2, Fase 1: el <select> del perfil de arranque, mismo lenguaje que el
+   input del plazo. */
+.displays-setting-select {
+  min-width: 180px;
+  max-width: 100%;
+  background: var(--bg-deep, var(--bg-card));
+  border: 1px solid var(--neon-cyan-soft);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+}
+.displays-setting-select:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+.displays-setting-unit {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-mute);
+}
+
+/* --- Lienzo de arrastre -------------------------------------------------- */
+.displays-canvas-hint {
+  font-size: 11px;
+  color: var(--text-mute);
+  margin: 0 0 10px 0;
+}
+
+.displays-canvas {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-cyan-soft);
+  overflow: hidden;
+  /* La rejilla de puntos da referencia visual sin robar protagonismo. */
+  background-image: radial-gradient(var(--neon-cyan-soft) 1px, transparent 1px);
+  background-size: 16px 16px;
+  touch-action: none;
+}
+
+.displays-canvas-monitor {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px;
+  overflow: hidden;
+  background: var(--neon-cyan-soft); /* SPEC-shell: token → vira con la app */
+  border: 1px solid var(--neon-cyan);
+  color: var(--text-bright);
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow 0.1s;
+}
+
+.displays-canvas-monitor:hover {
+  box-shadow: 0 0 8px var(--neon-cyan-glow); /* SPEC-shell: token → vira con la app */
+}
+
+.displays-canvas-monitor.is-dragging {
+  cursor: grabbing;
+  z-index: 5;
+  box-shadow: 0 0 12px var(--neon-cyan-glow); /* SPEC-shell: token → vira con la app */
+}
+
+.displays-canvas-monitor.is-primary {
+  border-color: var(--neon-magenta);
+  background: rgba(255, 43, 214, 0.10);
+}
+
+.displays-canvas-label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.displays-canvas-meta {
+  font-size: 9px;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
+.displays-canvas-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
