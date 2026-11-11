@@ -183,6 +183,13 @@ pub enum ActionV2 {
     Esperar {
         segundos: u8,
     },
+    /// Prender o apagar el HDR de una pantalla (encargo 07, la "03b" del spec). `pantalla` es
+    /// el id de monitor como texto (`"luid:target:edid"`, el de `format_display_id`): un id
+    /// raro tocado a mano lo rechaza quien corre la acción, nunca la lectura del archivo.
+    Hdr {
+        pantalla: String,
+        prender: bool,
+    },
     #[serde(other)]
     Desconocida,
 }
@@ -197,7 +204,9 @@ impl ActionV2 {
                 args: args.clone(),
             }),
             Self::Volumen { nivel } => Some(Accion::Volumen { nivel: *nivel }),
-            Self::Cerrar { .. } | Self::Esperar { .. } | Self::Desconocida => None,
+            Self::Cerrar { .. } | Self::Esperar { .. } | Self::Hdr { .. } | Self::Desconocida => {
+                None
+            }
         }
     }
 }

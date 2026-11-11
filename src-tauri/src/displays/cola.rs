@@ -78,7 +78,11 @@ pub fn correr_lista(
                     );
                 }
             }
-            // Una acción de una versión más nueva (o HDR hasta el encargo 03b): no se corre.
+            // HDR se guarda desde el encargo 07; su ejecución llega en el sub-paso siguiente.
+            ActionV2::Hdr { .. } => {
+                crate::runtime_log::warn("[displays] HDR todavía no corre; se saltea".to_string());
+            }
+            // Una acción de una versión más nueva: no se corre.
             ActionV2::Desconocida => {
                 crate::runtime_log::warn("[displays] acción desconocida; se saltea".to_string());
             }

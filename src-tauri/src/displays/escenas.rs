@@ -37,8 +37,7 @@ pub struct SceneAudio {
     pub friendly_name: String,
 }
 
-/// Una acción de las listas `entradaV2`/`salidaV2`. Espeja `monarch::ActionV2` más `Hdr`
-/// (encargo 03b): hasta entonces `save_scene` lo rechaza.
+/// Una acción de las listas `entradaV2`/`salidaV2`. Espeja `monarch::ActionV2`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "tipo", rename_all = "snake_case")]
 pub enum ActionV2Dto {
@@ -300,7 +299,7 @@ mod windows_impl {
     }
 
     /// Una acción del editor al vendor. `Ok(None)` = se descarta (una acción que esta versión
-    /// no conoce). `Hdr` (encargo 03b) todavía no se puede guardar.
+    /// no conoce).
     fn accion_a_vendor(dto: &ActionV2Dto) -> Result<Option<ActionV2>, String> {
         match dto {
             ActionV2Dto::Lanzar {
@@ -339,13 +338,14 @@ mod windows_impl {
                     segundos: *segundos,
                 }))
             }
-            ActionV2Dto::Hdr { .. } => Err(no_sabe_guardar("hdr")),
+            // El id se guarda como lo arma `format_display_id` (sin espacios); mal formado es
+            // error, nunca se adivina la pantalla.
+            ActionV2Dto::Hdr { pantalla, prender } => Ok(Some(ActionV2::Hdr {
+                pantalla: format_display_id(&parse_display_id(pantalla.trim())?),
+                prender: *prender,
+            })),
             ActionV2Dto::Desconocida => Ok(None),
         }
-    }
-
-    fn no_sabe_guardar(tipo: &str) -> String {
-        format!("esta versión todavía no sabe guardar acciones {tipo}")
     }
 
     fn acciones_a_vendor(dtos: &[ActionV2Dto]) -> Result<Vec<ActionV2>, String> {
@@ -373,6 +373,10 @@ mod windows_impl {
             ActionV2::Cerrar { exe } => ActionV2Dto::Cerrar { exe: exe.clone() },
             ActionV2::Esperar { segundos } => ActionV2Dto::Esperar {
                 segundos: *segundos,
+            },
+            ActionV2::Hdr { pantalla, prender } => ActionV2Dto::Hdr {
+                pantalla: pantalla.clone(),
+                prender: *prender,
             },
             ActionV2::Desconocida => ActionV2Dto::Desconocida,
         }
