@@ -328,3 +328,23 @@ fn la_frecuencia_en_palabras() {
     assert_eq!(texto_hz(59_500), "59,5");
     assert_eq!(texto_hz(59_999), "60");
 }
+
+// --- mutación (riesgo alto): los mutantes que sobrevivían ------------------------------
+
+#[test]
+fn ya_la_tenia_cuenta_tambien_la_frecuencia() {
+    // Mutante: comparar solo ancho y alto con la escena original.
+    let original = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    let otra_frecuencia = layout_de(vec![salida(2, true, 3840, 2160, 120_000)]);
+    assert!(validar_resoluciones(&otra_frecuencia, Some(&original), &tv_con(vec![])).is_err());
+}
+
+#[test]
+fn un_hz_entero_de_diferencia_ya_es_otro_modo() {
+    // Mutante: la tolerancia con `<=`. 59 Hz y 60 Hz son modos distintos.
+    let layout = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    assert!(validar_resoluciones(&layout, None, &tv_con(vec![modo(3840, 2160, 59_000)])).is_err());
+    let deseado = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    let quedo = layout_de(vec![salida(2, true, 3840, 2160, 59_000)]);
+    assert_eq!(avisos_tras_aplicar(&deseado, &quedo, &[]).len(), 1);
+}
