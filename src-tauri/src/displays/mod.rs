@@ -61,6 +61,8 @@ mod topology;
 // Sin `cfg(windows)` a propósito: es lo que `displays-tests` puede correr. Los tipos de
 // las escenas se nombran en cualquier plataforma; sus conversiones son solo Windows.
 mod escenas;
+// Ídem: los tipos del selector de resolución y sus reglas puras (encargo 02 de escenas).
+mod modos;
 mod view;
 #[cfg(target_os = "windows")]
 mod watchdog;
@@ -68,6 +70,7 @@ mod watchdog;
 mod win32_types;
 
 pub use escenas::{SceneDraft, SceneView, ScenesResult};
+pub use modos::DisplayModesView;
 pub use view::DisplayView;
 use view::mock_displays;
 // Solo los usa el camino de Windows (`views_from_topology` y `estado`).
@@ -380,6 +383,137 @@ pub const EVENTO_ESCENAS: &str = "displays-scenes-changed";
 #[cfg(target_os = "windows")]
 pub type Emisor = Box<dyn Fn(&str, serde_json::Value) + Send + Sync + 'static>;
 
+/// Le pregunta a Windows qué modos acepta cada pantalla prendida (encargo 02 de escenas).
+///
+/// Sondeado antes de escribir (doctrina "Sondar Win32", evidencia del encargo 02):
+/// `EnumDisplaySettingsExW` con `iModeNum` 0, 1, 2… sobre el nombre GDI de la FUENTE activa
+/// (`\\.\DISPLAYn`, de `DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME`) hasta que devuelve 0. Sin
+/// `EDS_RAWMODE` solo da los modos que el monitor acepta; sin `EDS_ROTATEDMODE`, en la
+/// orientación de hoy (la misma del modo de fuente que guarda el `Layout`). Una salida sin
+/// fuente activa (la TV apagada) no tiene nombre GDI ni API documentada para pedirle modos:
+/// por eso solo se leen las prendidas y las demás usan lo recordado.
+///
+/// Solo LEE: no toca la topología ni el motor (`enumerate.rs` se usa tal cual).
+#[cfg(target_os = "windows")]
+mod lectura_de_modos {
+    use std::mem::size_of;
+
+    use monarch::model::DisplayMode;
+    use monarch::ManagerError;
+    use windows::core::PCWSTR;
+    use windows::Win32::Devices::Display::{
+        DisplayConfigGetDeviceInfo, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+        DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_PATH_INFO,
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME,
+    };
+    use windows::Win32::Graphics::Gdi::{
+        EnumDisplaySettingsExW, DEVMODEW, ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
+    };
+
+    use super::modos::{modo_de_devmode, ModosLeidos};
+    use super::win32_types::luid_to_u64;
+
+    /// `wingdi.h`: el bit de `dmDisplayFlags` de un modo entrelazado.
+    const DM_INTERLACED: u32 = 0x0000_0002;
+    /// `wingdi.h`: el bit de path activo de `DISPLAYCONFIG_PATH_INFO.flags`.
+    const DISPLAYCONFIG_PATH_ACTIVE_FLAG: u32 = 0x0000_0001;
+    /// Tope de vueltas por pantalla: un driver que nunca devuelve 0 no cuelga el hilo. Una
+    /// pantalla común reporta decenas a pocos cientos (un modo por profundidad de color).
+    const TOPE_DE_MODOS: u32 = 4096;
+
+    /// Los modos de cada pantalla prendida. Una pantalla cuyo nombre GDI no se puede leer
+    /// queda afuera (sale con lo recordado); un error de la enumeración es error.
+    pub fn leer() -> Result<Vec<ModosLeidos>, ManagerError> {
+        let topologia = super::enumerate::query_active_only_topology()?;
+        let mut leidos = Vec::new();
+        for path in &topologia.raw.paths {
+            if path.flags & DISPLAYCONFIG_PATH_ACTIVE_FLAG == 0 {
+                continue;
+            }
+            let adapter_luid = luid_to_u64(
+                path.targetInfo.adapterId.HighPart,
+                path.targetInfo.adapterId.LowPart,
+            );
+            // Se cruza por (adaptador, target) y no por índice: no depende de que la
+            // enumeración arme los dos vectores en el mismo orden.
+            let Some(pantalla) = topologia.displays.iter().find(|d| {
+                d.id.adapter_luid == adapter_luid && d.id.target_id == path.targetInfo.id
+            }) else {
+                continue;
+            };
+            let Some(nombre_gdi) = nombre_gdi_de_la_fuente(path) else {
+                continue;
+            };
+            leidos.push(ModosLeidos {
+                id: pantalla.id.clone(),
+                nombre: pantalla.friendly_name.clone(),
+                modos: modos_del_dispositivo(&nombre_gdi),
+            });
+        }
+        Ok(leidos)
+    }
+
+    fn nombre_gdi_de_la_fuente(path: &DISPLAYCONFIG_PATH_INFO) -> Option<Vec<u16>> {
+        unsafe {
+            let mut fuente = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+            fuente.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                size: size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32,
+                adapterId: path.sourceInfo.adapterId,
+                id: path.sourceInfo.id,
+            };
+            if DisplayConfigGetDeviceInfo(&mut fuente.header) != 0 {
+                return None;
+            }
+            let largo = fuente
+                .viewGdiDeviceName
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(fuente.viewGdiDeviceName.len());
+            if largo == 0 {
+                return None;
+            }
+            let mut nombre = fuente.viewGdiDeviceName[..largo].to_vec();
+            nombre.push(0);
+            Some(nombre)
+        }
+    }
+
+    /// Los modos crudos de un dispositivo GDI (`nombre` termina en 0). Sin normalizar: eso lo
+    /// hace quien los usa.
+    fn modos_del_dispositivo(nombre: &[u16]) -> Vec<DisplayMode> {
+        let mut modos = Vec::new();
+        for numero in 0..TOPE_DE_MODOS {
+            // La doc pide `dmSize` antes de llamar; `dmDriverExtra` en 0 = sin datos privados.
+            let mut devmode: DEVMODEW = unsafe { std::mem::zeroed() };
+            devmode.dmSize = size_of::<DEVMODEW>() as u16;
+            let hay = unsafe {
+                EnumDisplaySettingsExW(
+                    PCWSTR(nombre.as_ptr()),
+                    ENUM_DISPLAY_SETTINGS_MODE(numero),
+                    &mut devmode,
+                    ENUM_DISPLAY_SETTINGS_FLAGS(0),
+                )
+            };
+            if !hay.as_bool() {
+                break;
+            }
+            // `dmDisplayFlags` vive en una union: leerla es legal porque para un dispositivo
+            // de pantalla esa rama es la que llena Windows (la otra, `dmNup`, es de impresora).
+            let flags = unsafe { devmode.Anonymous2.dmDisplayFlags };
+            if let Some(modo) = modo_de_devmode(
+                devmode.dmPelsWidth,
+                devmode.dmPelsHeight,
+                devmode.dmDisplayFrequency,
+                flags & DM_INTERLACED != 0,
+            ) {
+                modos.push(modo);
+            }
+        }
+        modos
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod estado {
     use std::collections::BTreeMap;
@@ -397,13 +531,14 @@ mod estado {
     use super::backend::SystemDisplayBackend;
     use super::escenas;
     use super::ids::{format_display_id, parse_display_id};
+    use super::modos;
     use super::store::MillenniumConfigStore;
     use super::watchdog::{self, Desenlace};
     use super::{
-        diagnostics, mark_can_detach, ActionView, AudioView, DisplayView, DisplaysSnapshot, Emisor,
-        PendingView, PosicionView, ProfileActionsView, ProfileView, SceneDraft, SceneView,
-        ScenesResult, SettingsView, EVENTO_AUDIO, EVENTO_CAMBIO, EVENTO_CONFIRMACION,
-        EVENTO_ESCENAS, FORCE_MOCK_ENV,
+        diagnostics, mark_can_detach, ActionView, AudioView, DisplayModesView, DisplayView,
+        DisplaysSnapshot, Emisor, PendingView, PosicionView, ProfileActionsView, ProfileView,
+        SceneDraft, SceneView, ScenesResult, SettingsView, EVENTO_AUDIO, EVENTO_CAMBIO,
+        EVENTO_CONFIRMACION, EVENTO_ESCENAS, FORCE_MOCK_ENV,
     };
 
     type Manager = MonarchDisplayManager<SystemDisplayBackend, MillenniumConfigStore>;
@@ -491,6 +626,13 @@ mod estado {
             Box::new(move || para_el_resume.al_despertar()),
             Box::new(move || para_el_cambio.al_cambiar_displays()),
         );
+
+        // Al arrancar, los modos de las pantallas prendidas. En un hilo aparte para no
+        // demorar el arranque: no hace falta para nada de lo que sigue.
+        let para_los_modos = estado.clone();
+        std::thread::spawn(move || {
+            para_los_modos.anotar_modos();
+        });
 
         Ok(estado)
     }
@@ -1508,6 +1650,67 @@ mod estado {
         /// CCD fresca (no del cache), así que la lista se actualiza sola.
         fn al_cambiar_displays(&self) {
             self.avisar_cambio();
+            // Una pantalla recién prendida es la única que puede contar sus modos. Corre en
+            // el hilo del cambio (con su espera anti-ráfaga), no en un poll nuevo.
+            self.anotar_modos();
+        }
+
+        // --- modos de pantalla (encargo 02) ------------------------------------
+
+        /// Lee los modos de las pantallas prendidas **fuera del lock del manager** y los
+        /// anota en `display_modes` (el vendor guarda solo si cambió y nunca vacía una
+        /// lista). Devuelve lo leído para quien quiera mostrarlo; en modo mentira, nada.
+        fn anotar_modos(&self) -> Vec<modos::ModosLeidos> {
+            if self.0.mock {
+                return Vec::new();
+            }
+            let leidos = match super::lectura_de_modos::leer() {
+                Ok(leidos) => leidos,
+                Err(err) => {
+                    crate::runtime_log::warn(format!(
+                        "[displays] no se pudieron leer los modos de las pantallas: {err}"
+                    ));
+                    return Vec::new();
+                }
+            };
+            let vistas: Vec<_> = leidos
+                .iter()
+                .map(|l| (l.id.clone(), l.nombre.clone(), l.modos.clone()))
+                .collect();
+            let resultado = match self.0.manager.lock() {
+                Ok(mut guard) => guard.remember_display_modes(&vistas),
+                Err(_) => {
+                    crate::runtime_log::err("[displays] modos: el estado quedó inconsistente");
+                    return leidos;
+                }
+            };
+            match resultado {
+                Ok(true) => diagnostics::log(format!("modos:anotados:{}", leidos.len())),
+                Ok(false) => {}
+                Err(err) => crate::runtime_log::warn(format!(
+                    "[displays] no se pudieron guardar los modos de las pantallas: {err}"
+                )),
+            }
+            leidos
+        }
+
+        /// El selector de resolución: cada pantalla que Windows ve o que alguna escena
+        /// nombra, con lo que contestó recién o, si no, lo recordado.
+        pub fn listar_modos(&self) -> Result<Vec<DisplayModesView>, String> {
+            let pantallas = self.pantallas_con_modos()?;
+            Ok(pantallas.iter().map(modos::ModosDePantalla::a_vista).collect())
+        }
+
+        fn pantallas_con_modos(&self) -> Result<Vec<modos::ModosDePantalla>, String> {
+            let leidos = self.anotar_modos();
+            let i = self.insumos_de_escenas()?;
+            Ok(modos::pantallas_con_modos(
+                &i.infos,
+                &i.perfiles,
+                &i.huellas,
+                &i.ajustes.display_modes,
+                &leidos,
+            ))
         }
 
         // --- avisos ----------------------------------------------------------

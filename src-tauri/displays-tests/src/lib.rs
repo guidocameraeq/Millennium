@@ -71,6 +71,11 @@ mod store_tests;
 #[cfg(test)]
 mod escenas_tests;
 
+// Resoluciones por pantalla (encargo 02 de escenas): de un DEVMODE a un modo y qué lista
+// ve cada pantalla del selector.
+#[cfg(test)]
+mod modos_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -85,6 +90,10 @@ pub mod displays {
     // Las conversiones de escenas (encargo 01): puras, sin `windows` ni `tauri`.
     #[path = "../../../src/displays/escenas.rs"]
     pub mod escenas;
+
+    // Las reglas puras de los modos de pantalla (encargo 02): sin `windows` ni `tauri`.
+    #[path = "../../../src/displays/modos.rs"]
+    pub mod modos;
 
     #[path = "../../../src/displays/store.rs"]
     pub mod store;
