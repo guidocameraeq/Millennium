@@ -218,7 +218,7 @@ impl PerfilAcciones {
         Self {
             entrada: entrada.iter().filter_map(ActionV2::a_accion).collect(),
             salida: salida.iter().filter_map(ActionV2::a_accion).collect(),
-            entrada_v2: Some(entrada),
+            entrada_v2: None,
             salida_v2: Some(salida),
         }
     }
