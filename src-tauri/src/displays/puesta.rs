@@ -1,12 +1,14 @@
 //! "Puesta ahora" (módulo escenas, encargo 04): qué escena coincide con cómo están las
-//! pantallas, aunque se hayan puesto a mano. PURO: sin `windows`, sin `tauri` y sin tocar el
-//! motor; `displays-tests` lo incluye por `#[path]` y lo prueba de verdad.
+//! pantallas, aunque se hayan puesto a mano. PURO: sin el crate `windows`, sin `tauri` y sin tocar
+//! el motor; `displays-tests` lo incluye por `#[path]` y lo prueba de verdad. Usa `monarch` y
+//! `escenas::mismo_monitor`, que son solo Windows: en `mod.rs` se declara bajo
+//! `#[cfg(target_os = "windows")]`, nunca junto a `mod escenas;`.
 //!
 //! Se compara lo que una escena **decide**: qué pantallas están prendidas, cuál es la principal
 //! y dónde queda cada una respecto de la principal. No se comparan ids crudos (ADR-012): el
 //! adaptador puede cambiar de LUID entre arranques, así que una pantalla es la misma si tiene el
 //! mismo id o el mismo EDID (`escenas::mismo_monitor`, la misma noción que el remapeo del motor).
-//! Un monitor que enumera sin EDID solo coincide por id exacto: nunca se adivina.
+//! Un monitor que enumera sin EDID solo coincide por id exacto (no se adivina). Entre monitores gemelos (mismo EDID) la principal se empareja con la principal.
 
 use monarch::{Layout, OutputConfig, Profile};
 
@@ -42,8 +44,10 @@ fn emparejar<'a, 'b>(
         if parejas[i].is_some() {
             continue;
         }
+        let libre_y_mismo = |j: usize| !usada[j] && mismo_monitor(&de_actual[j].display_id, &s.display_id);
         let j = (0..de_actual.len())
-            .find(|&j| !usada[j] && mismo_monitor(&de_actual[j].display_id, &s.display_id))?;
+            .find(|&j| libre_y_mismo(j) && de_actual[j].primary == s.primary)
+            .or_else(|| (0..de_actual.len()).find(|&j| libre_y_mismo(j)))?;
         parejas[i] = Some(j);
         usada[j] = true;
     }

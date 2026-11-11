@@ -181,6 +181,40 @@ fn una_escena_sin_pantallas_prendidas_nunca_coincide() {
     assert!(!coincide(&layout(vec![]), &layout(vec![])));
 }
 
+#[test]
+fn otro_lado_en_horizontal_no_coincide() {
+    // Misma altura, la TV pasó de la derecha a la izquierda: solo difiere en x.
+    let a_la_izquierda = layout(vec![
+        pantalla(1, 1, true, true, 0, 0),
+        pantalla(1, 2, true, false, -1920, 0),
+    ]);
+    assert!(!coincide(&dos_lado_a_lado(1), &a_la_izquierda));
+}
+
+#[test]
+fn duplicadas_con_otra_principal_no_coincide() {
+    // Modo duplicar: las dos en (0,0); lo único que cambia es cuál es la principal.
+    let duplicadas = |principal: u32| {
+        layout(vec![
+            pantalla(1, 1, true, principal == 1, 0, 0),
+            pantalla(1, 2, true, principal == 2, 0, 0),
+        ])
+    };
+    assert!(coincide(&duplicadas(1), &duplicadas(1)));
+    assert!(!coincide(&duplicadas(1), &duplicadas(2)));
+}
+
+#[test]
+fn gemelos_listados_al_reves_se_emparejan_por_la_principal() {
+    let gemelo = |luid: u64, target: u32, principal: bool, x: i32| OutputConfig {
+        display_id: id(luid, target, Some(777)),
+        ..pantalla(luid, target, true, principal, x, 0)
+    };
+    let escena_l = layout(vec![gemelo(1, 1, true, 0), gemelo(1, 2, false, 1920)]);
+    let al_reves = layout(vec![gemelo(9, 8, false, 1920), gemelo(9, 7, true, 0)]);
+    assert!(coincide(&escena_l, &al_reves));
+}
+
 // --- coincide: el monitor sin EDID -------------------------------------------------------------
 
 fn sin_edid(luid: u64, target: u32, principal: bool, x: i32) -> OutputConfig {
