@@ -620,11 +620,20 @@ pub fn run() {
                         let emisor: displays::Emisor =
                             Box::new(move |nombre, payload| {
                                 let _ = emisor_handle.emit(nombre, payload);
+                                // La bandeja se rearma donde el backend avisa que cambiaron las escenas.
+                                #[cfg(desktop)]
+                                if nombre == displays::EVENTO_ESCENAS {
+                                    app::tray::rearmar_escenas(&emisor_handle);
+                                }
                             });
                         match displays::init(&data_dir, emisor) {
                             Ok(estado) => {
                                 app.manage(estado.clone());
                                 runtime_log::info("[displays] motor de monitores listo");
+
+                                // El submenú de escenas de la bandeja, ahora que hay motor.
+                                #[cfg(desktop)]
+                                app::tray::rearmar_escenas(app.handle());
 
                                 // Displays v2, Fase 1: registrar los atajos
                                 // globales de perfil (si el interruptor general

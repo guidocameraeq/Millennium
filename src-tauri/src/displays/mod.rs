@@ -54,6 +54,9 @@ mod cola;
 mod enumerate;
 #[cfg(target_os = "windows")]
 mod ids;
+// La puesta ahora usa `monarch` y `escenas::mismo_monitor`: solo Windows (encargo 04 de escenas).
+#[cfg(target_os = "windows")]
+pub(crate) mod puesta;
 #[cfg(target_os = "windows")]
 mod store;
 #[cfg(target_os = "windows")]
@@ -604,6 +607,7 @@ mod estado {
     use super::ids::{format_display_id, parse_display_id};
     use super::cola;
     use super::modos;
+    use super::puesta;
     use super::store::MillenniumConfigStore;
     use super::watchdog::{self, Desenlace};
     use super::{
@@ -654,6 +658,9 @@ mod estado {
         /// sola confirmación viva a la vez, así que este slot siempre corresponde
         /// al pending vivo (o es `None`).
         escena_pendiente: Mutex<Option<String>>,
+        /// La escena que se avisó como "puesta ahora" la última vez (encargo 04): sirve para
+        /// emitir `current` solo cuando cambia, sin un poll nuevo.
+        escena_puesta: Mutex<Option<String>>,
         /// Las acciones de las escenas corren acá, en fila y en su hilo (encargo 03): `confirm`
         /// avisa antes de encolar y no espera a un Esperar.
         cola: cola::Cola,
@@ -688,6 +695,7 @@ mod estado {
             audio_previo: Mutex::new(None),
             escena_activa: Mutex::new(None),
             escena_pendiente: Mutex::new(None),
+            escena_puesta: Mutex::new(None),
             cola: cola::Cola::nueva(acciones::EjecutorReal, cola::RelojReal::nuevo()),
         }));
 
@@ -912,6 +920,7 @@ mod estado {
             diagnostics::log("confirm:el_usuario_confirmo");
             self.avisar_confirmacion(serde_json::json!({ "kind": "confirmed" }));
             self.avisar_cambio();
+            self.recalcular_puesta();
             self.0.cola.encolar(acciones);
             self.snapshot()
         }
@@ -933,6 +942,7 @@ mod estado {
                 "reason": "manual",
             }));
             self.avisar_cambio();
+            self.recalcular_puesta();
             self.snapshot()
         }
 
@@ -1267,12 +1277,87 @@ mod estado {
         /// La lista nueva de la pestaña ESCENAS, en el orden de Guido.
         pub fn listar_escenas(&self) -> Result<Vec<SceneView>, String> {
             let i = self.insumos_de_escenas()?;
-            let activa = self.0.escena_activa.lock().ok().and_then(|g| g.clone());
+            // El sello PUESTA AHORA sale de comparar con las pantallas, no de la escena activa.
+            let puesta = self.calcular_puesta(&i.perfiles);
+            if let Ok(mut slot) = self.0.escena_puesta.lock() {
+                *slot = puesta.clone();
+            }
             Ok(i.perfiles
                 .iter()
                 .map(|p| {
-                    escenas::vista_de_escena(p, &i.ajustes, &i.huellas, &i.infos, activa.as_deref())
+                    escenas::vista_de_escena(p, &i.ajustes, &i.huellas, &i.infos, puesta.as_deref())
                 })
+                .collect())
+        }
+
+        /// Qué escena de `perfiles` coincide con las pantallas ahora (a lo sumo una). Lee el
+        /// layout con el lock del manager corto y compara afuera. Si Windows no lo da, nada.
+        fn calcular_puesta(&self, perfiles: &[Profile]) -> Option<String> {
+            let actual = {
+                let guard = self.0.manager.lock().ok()?;
+                guard.get_layout().ok()?
+            };
+            let activa = self.0.escena_activa.lock().ok().and_then(|g| g.clone());
+            puesta::escena_puesta(perfiles, &actual, activa.as_deref())
+        }
+
+        /// Vuelve a mirar cuál es la puesta ahora y, si cambió desde el último aviso, emite
+        /// `displays-scenes-changed` con `kind: "current"`. Se llama donde ya hay un cambio de
+        /// pantallas (confirmar, revertir, `WM_DISPLAYCHANGE`): no hay un poll nuevo.
+        fn recalcular_puesta(&self) {
+            let perfiles = match self.0.manager.lock() {
+                Ok(guard) => guard.list_profiles(),
+                Err(_) => return,
+            };
+            let nueva = self.calcular_puesta(&perfiles);
+            let cambio = match self.0.escena_puesta.lock() {
+                Ok(mut slot) if *slot != nueva => {
+                    *slot = nueva;
+                    true
+                }
+                _ => false,
+            };
+            if cambio {
+                self.avisar_escenas("current");
+            }
+        }
+
+        /// `true` si hay un cambio de pantallas esperando confirmación (la bandeja no apila otro).
+        pub fn hay_cambio_pendiente(&self) -> bool {
+            self.pendiente().is_some()
+        }
+
+        /// El clic en una escena de la bandeja: re-valida que exista (por nombre; el lugar es el
+        /// que tenía el menú) y aplica por el camino de APLICAR, con cuenta regresiva
+        /// (`cargar_perfil`), NO por el directo de los atajos. Con un cambio esperando
+        /// confirmación no apila otro. `Err` trae el aviso en palabras para el log.
+        pub fn aplicar_desde_bandeja(&self, id: &str) -> Result<DisplaysSnapshot, String> {
+            let nombres: Vec<String> = self
+                .0
+                .manager
+                .lock()
+                .map_err(|_| envenenado())?
+                .list_profiles()
+                .into_iter()
+                .map(|p| p.name)
+                .collect();
+            let nombre = puesta::escena_del_menu(id, &nombres)
+                .ok_or_else(|| "esa escena ya no existe: no se aplicó nada".to_string())?;
+            if self.hay_cambio_pendiente() {
+                return Err(format!(
+                    "hay un cambio de pantallas esperando confirmación: no se aplicó «{nombre}»"
+                ));
+            }
+            self.cargar_perfil(&nombre)
+        }
+
+        /// Las escenas para el submenú de la bandeja: nombre, emoji y si es la puesta ahora,
+        /// en el orden de Guido.
+        pub fn escenas_para_la_bandeja(&self) -> Result<Vec<(String, Option<String>, bool)>, String> {
+            Ok(self
+                .listar_escenas()?
+                .into_iter()
+                .map(|e| (e.name, e.emoji, e.is_current))
                 .collect())
         }
 
@@ -1727,6 +1812,7 @@ mod estado {
                         "reason": "timeout",
                     }));
                     self.avisar_cambio();
+                    self.recalcular_puesta();
                 }
                 // Alguien resolvió la confirmación antes (confirmó o revirtió a
                 // mano). Los eventos ya los mandó ese camino; repetirlos acá haría
@@ -1778,6 +1864,7 @@ mod estado {
         /// CCD fresca (no del cache), así que la lista se actualiza sola.
         fn al_cambiar_displays(&self) {
             self.avisar_cambio();
+            self.recalcular_puesta();
             // Una pantalla recién prendida es la única que puede contar sus modos. Corre en
             // el hilo del cambio (con su espera anti-ráfaga), no en un poll nuevo.
             self.anotar_modos();
