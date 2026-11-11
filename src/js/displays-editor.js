@@ -31,6 +31,9 @@
   const DESTINO_BP_ABRIR = 'steam://open/bigpicture';
   const DESTINO_BP_CERRAR = 'steam://close/bigpicture';
 
+  // Un campo vacío no es un 0: queda null y GUARDAR dice qué falta (no se silencia la PC por un descuido).
+  function numOrNull(v) { return v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v); }
+
   function chromeArgs(a) { return Array.isArray(a.args) ? a.args.filter((x) => typeof x === 'string') : []; }
   function chromeDir(a) {
     const pd = chromeArgs(a).find((x) => x.startsWith('--profile-directory='));
@@ -43,8 +46,8 @@
       defaults: () => ({}), toAction: () => ({ tipo: 'lanzar', destino: DESTINO_BP_ABRIR, args: [] }) },
     { key: 'juego', label: 'Abrir un juego de Steam…',
       fields: [{ k: 'appId', label: 'Juego', type: 'select', options: () => sceneEd.games.map((g) => ({ value: g.appId, label: g.name })), list: 'games' }],
-      match: (a) => a.tipo === 'lanzar' && /steam:\/\/rungameid\/\d+/i.test(String(a.destino)),
-      values: (a) => ({ appId: (String(a.destino).match(/rungameid\/(\d+)/i) || [])[1] || '', etiqueta: a.etiqueta || '' }),
+      match: (a) => a.tipo === 'lanzar' && /steam:\/\/rungameid\//i.test(String(a.destino)),
+      values: (a) => ({ appId: (String(a.destino).match(/rungameid\/(\d*)/i) || [])[1] || '', etiqueta: a.etiqueta || '' }),
       defaults: () => ({ appId: sceneEd.games.length ? sceneEd.games[0].appId : '' }),
       toAction: (v) => {
         const g = sceneEd.games.find((x) => x.appId === v.appId);
@@ -83,7 +86,7 @@
       match: (a) => a.tipo === 'esperar',
       values: (a) => ({ segundos: a.segundos }),
       defaults: () => ({ segundos: 5 }),
-      toAction: (v) => ({ tipo: 'esperar', segundos: Number(v.segundos) }) },
+      toAction: (v) => ({ tipo: 'esperar', segundos: numOrNull(v.segundos) }) },
     { key: 'hdr', label: 'HDR de una pantalla…',
       fields: [
         { k: 'pantalla', label: 'Pantalla', type: 'select', options: () => ((sceneEd.draft && sceneEd.draft.outputs) || []).map((o) => ({ value: o.displayId, label: o.name })) },
@@ -100,7 +103,7 @@
       match: (a) => a.tipo === 'volumen',
       values: (a) => ({ nivel: a.nivel }),
       defaults: () => ({ nivel: 40 }),
-      toAction: (v) => ({ tipo: 'volumen', nivel: Number(v.nivel) }) },
+      toAction: (v) => ({ tipo: 'volumen', nivel: numOrNull(v.nivel) }) },
     { key: 'programa', label: 'Abrir un programa…',
       fields: [{ k: 'destino', label: 'Dónde está el programa (ej: C:\\Programas\\algo.exe)', type: 'text' }],
       match: (a) => a.tipo === 'lanzar',
@@ -139,6 +142,21 @@
     if (win) win.primary = true;
   }
 
+  // Qué le falta a una acción para poder guardarse, en palabras; null = está completa.
+  function actionProblem(a) {
+    if (!a) return null;
+    const entero = (n, min, max) => Number.isInteger(n) && n >= min && n <= max;
+    if (a.tipo === 'volumen' && !entero(a.nivel, 0, 100)) return 'el volumen va de 0 a 100';
+    if (a.tipo === 'esperar' && !entero(a.segundos, 1, 30)) return 'esperar va de 1 a 30 segundos';
+    if (a.tipo === 'cerrar' && !a.exe) return 'elegí qué programa cerrar';
+    if (a.tipo === 'hdr' && !a.pantalla) return 'elegí la pantalla del HDR';
+    if (a.tipo === 'lanzar') {
+      if (/steam:\/\/rungameid\/$/i.test(String(a.destino))) return 'elegí un juego de Steam';
+      if (!String(a.destino || '').trim()) return 'falta qué abrir';
+    }
+    return null;
+  }
+
   // Lo que impide GUARDAR, escrito (no en un tooltip). Lista vacía = se puede.
   function sceneEdProblems() {
     const d = sceneEd.draft;
@@ -150,6 +168,12 @@
     else if ((scenesData || []).some((s) => s.name === name && s.name !== sceneEd.originalName)) {
       out.push(`Ya hay una escena que se llama "${name}"`);
     }
+    [['Al entrar', d.entradaV2], ['Al salir', d.salidaV2]].forEach(([donde, lista]) => {
+      (lista || []).forEach((a) => {
+        const falta = actionProblem(a);
+        if (falta) out.push(`${donde}: ${falta}`);
+      });
+    });
     if (d.shortcut) {
       const otra = (scenesData || []).find((s) => s.shortcut === d.shortcut && s.name !== sceneEd.originalName);
       if (otra) out.push(`Ese atajo ya lo usa la escena "${otra.name}"`);

@@ -10,7 +10,7 @@
   let scenesListenerReady = false;
   let sceneDragName = null;       // tarjeta que se está arrastrando
   // Estado de UI de la lista; sobrevive al re-render por diff.
-  const scenesUi = { menu: null, rename: null, confirmDel: null, chooser: null };
+  const scenesUi = { menu: null, rename: null, confirmDel: null, confirmUpd: null, chooser: null };
 
   // Helper mínimo: todo texto entra por textContent (CLAUDE.md regla 6).
   function mkEl(tag, cls, text) {
@@ -180,14 +180,17 @@
       menu.replaceChildren(
         mkBtn('modal-btn small scene-dup', 'DUPLICAR'),
         mkBtn('modal-btn small scene-rename', 'RENOMBRAR'),
+        mkBtn('modal-btn small scene-upd', '↻ ACTUALIZAR CON LO PUESTO', 'Pisa solo las pantallas de esta escena con lo que está puesto ahora'),
         mkBtn('modal-btn small reject scene-del', 'BORRAR'));
     } else if (!abierto) {
       menu.replaceChildren();
     }
+    menu.querySelectorAll('button').forEach((b) => { b.disabled = locked; });
     const inline = li.querySelector('.scene-inline');
-    const modo = scenesUi.rename === s.name ? 'rename' : (scenesUi.confirmDel === s.name ? 'del' : '');
+    const modo = scenesUi.rename === s.name ? 'rename'
+      : (scenesUi.confirmDel === s.name ? 'del' : (scenesUi.confirmUpd === s.name ? 'upd' : ''));
     inline.hidden = !modo;
-    inline.classList.toggle('is-danger', modo === 'del');
+    inline.classList.toggle('is-danger', modo === 'del' || modo === 'upd');
     if (inline.dataset.modo !== modo) {
       inline.dataset.modo = modo;
       inline.replaceChildren();
@@ -196,6 +199,11 @@
           mkEl('span', 'scene-inline-text', `¿Borrar "${s.name}"? No se puede deshacer.`),
           mkBtn('modal-btn small reject scene-del-yes', 'SÍ, BORRAR'),
           mkBtn('modal-btn small scene-del-no', 'NO'));
+      } else if (modo === 'upd') {
+        inline.append(
+          mkEl('span', 'scene-inline-text', `¿Pisar las pantallas de "${s.name}" con lo que está puesto ahora? El sonido, las acciones y el atajo no cambian.`),
+          mkBtn('modal-btn small reject scene-upd-yes', 'SÍ, ACTUALIZAR'),
+          mkBtn('modal-btn small scene-upd-no', 'NO'));
       } else if (modo === 'rename') {
         const inp = mkEl('input', 'scene-rename-input');
         inp.type = 'text';
@@ -209,6 +217,7 @@
         setTimeout(() => { inp.focus(); inp.select(); }, 0);
       }
     }
+    inline.querySelectorAll('button').forEach((b) => { b.disabled = locked; });
   }
 
   function renderSceneChooser() {
@@ -330,19 +339,44 @@
   }
 
   async function deleteSceneFlow(name) {
-    scenesUi.confirmDel = null;
-    if (state.displaysBusy) return;
+    if (state.displaysBusy) return; // la confirmación queda abierta: el botón está apagado y dice por qué
     state.displaysBusy = true;
     renderScenes();
+    let borro = false;
     try {
       await invoke('displays_delete_profile', { name });
+      borro = true;
+      scenesUi.confirmDel = null;
       setStatus(`DISPLAYS · escena "${name}" borrada`, { force: true });
     } catch (err) {
       showDisplaysError(err);
     } finally {
       state.displaysBusy = false;
     }
-    await loadScenes();
+    // Si falló, el cartel de error se queda: no se relee la lista (eso lo escondería).
+    if (borro) await loadScenes();
+    else renderScenes();
+  }
+
+  // ↻ actualizar con lo puesto: pisa SOLO el layout de la escena (replace: true, contrato).
+  async function updateSceneFlow(name) {
+    if (state.displaysBusy) return;
+    state.displaysBusy = true;
+    if (displaysError) displaysError.hidden = true;
+    renderScenes();
+    let ok = false;
+    try {
+      await invoke('displays_save_profile', { name, replace: true });
+      ok = true;
+      scenesUi.confirmUpd = null;
+      setStatus(`DISPLAYS · "${name}" actualizada con lo que está puesto`, { force: true });
+    } catch (err) {
+      showDisplaysError(err);
+    } finally {
+      state.displaysBusy = false;
+    }
+    if (ok) await loadScenes();
+    else renderScenes();
   }
 
   function reorderScene(name, delta) {
@@ -365,7 +399,7 @@
     else if (hit('.scene-edit')) openSceneEditor({ from: 'scene', name });
     else if (hit('.scene-more')) {
       scenesUi.menu = scenesUi.menu === name ? null : name;
-      scenesUi.rename = null; scenesUi.confirmDel = null;
+      scenesUi.rename = null; scenesUi.confirmDel = null; scenesUi.confirmUpd = null;
       renderScenes();
     } else if (hit('.scene-up')) reorderScene(name, -1);
     else if (hit('.scene-down')) reorderScene(name, 1);
@@ -380,6 +414,11 @@
       renderScenes();
     } else if (hit('.scene-del-yes')) deleteSceneFlow(name);
     else if (hit('.scene-del-no')) { scenesUi.confirmDel = null; renderScenes(); }
+    else if (hit('.scene-upd')) {
+      scenesUi.menu = null; scenesUi.confirmUpd = name; scenesUi.confirmDel = null; scenesUi.rename = null;
+      renderScenes();
+    } else if (hit('.scene-upd-yes')) updateSceneFlow(name);
+    else if (hit('.scene-upd-no')) { scenesUi.confirmUpd = null; renderScenes(); }
     else if (hit('.scene-rename-ok')) submitSceneRename(li, name);
     else if (hit('.scene-rename-no')) { scenesUi.rename = null; renderScenes(); }
   }
@@ -477,8 +516,10 @@
   async function loadSettings() {
     if (displaysError) displaysError.hidden = true;
     displaysSettingsLoaded = false; // hasta poblar, saveSettings NO debe correr
-    // El selector de startup necesita la lista de perfiles: se pide si no está.
-    if (state.displaysProfiles === null) { try { await loadProfiles(); } catch (_) {} }
+    // El selector de startup necesita la lista de escenas AL DÍA (se renombra, se crea y se
+    // borra desde ESCENAS): sin releerla, un nombre nuevo no estaría entre las opciones y
+    // guardar un ajuste borraría la escena de arranque.
+    try { await loadProfiles(); } catch (_) {}
     populateStartupOptions();
     try {
       const settings = await invoke('displays_get_settings');
@@ -778,7 +819,7 @@
       renderDisplays();
       state.displaysProfiles = null;
       scenesData = null;
-      scenesUi.menu = scenesUi.rename = scenesUi.confirmDel = scenesUi.chooser = null;
+      scenesUi.menu = scenesUi.rename = scenesUi.confirmDel = scenesUi.confirmUpd = scenesUi.chooser = null;
       if (scenesList) scenesList.replaceChildren();
       listenSceneEvents();
       displaysSettingsLoaded = false; // AJUSTES se re-carga al entrar a su pestaña
