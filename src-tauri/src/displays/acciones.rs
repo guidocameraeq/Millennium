@@ -40,7 +40,8 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, WPARAM};
+use windows::core::BOOL;
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -107,7 +108,7 @@ fn cerrar(exe: &str) {
     for (hwnd, pid) in ventanas_visibles() {
         if pids.contains(&pid) {
             // SAFETY: `hwnd` salió recién de EnumWindows; si ya no existe, PostMessageW devuelve error.
-            let ok = unsafe { PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok();
+            let ok = unsafe { PostMessageW(Some(hwnd), WM_CLOSE,WPARAM(0), LPARAM(0)) }.is_ok();
             if ok {
                 avisadas += 1;
             }

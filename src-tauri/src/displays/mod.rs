@@ -602,6 +602,7 @@ mod estado {
     use super::backend::SystemDisplayBackend;
     use super::escenas;
     use super::ids::{format_display_id, parse_display_id};
+    use super::cola;
     use super::modos;
     use super::store::MillenniumConfigStore;
     use super::watchdog::{self, Desenlace};
