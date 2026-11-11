@@ -126,6 +126,9 @@ fn aplicar_escena_de_bandeja(app: &tauri::AppHandle, id: &str) {
             let _ = w.set_focus();
         }
     }
+    // Un clic en un ítem con tilde lo invierte solo: se rearma el menú salga bien o mal, así el
+    // ✓ queda donde dice el backend.
+    rearmar_escenas(app);
 }
 
 #[cfg(desktop)]

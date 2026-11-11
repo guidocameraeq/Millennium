@@ -2088,6 +2088,9 @@ mod estado {
         fn correr_ciclo_de_escena(&self, nombre: &str) {
             let lista = self.preparar_ciclo_de_escena(nombre);
             self.0.cola.encolar(lista);
+            // Sin cambio de video no llega `WM_DISPLAYCHANGE`: si hay dos escenas iguales, la
+            // activa nueva es la que lleva el sello.
+            self.recalcular_puesta();
         }
 
         /// La primera mitad del ciclo: arma la lista (SALIDA de la anterior y después ENTRADA
