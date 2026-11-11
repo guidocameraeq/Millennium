@@ -1268,17 +1268,30 @@ mod estado {
             original: Option<String>,
         ) -> Result<ScenesResult, String> {
             let datos = escenas::datos_de_borrador(&borrador)?;
-            // Solo modos que la pantalla reportó (o "Dejar la que tenga"). Lee Windows fuera
-            // del lock; la escena original se busca por su nombre de antes de editar.
-            let pantallas = self.pantallas_con_modos()?;
-            let original_layout = match original.as_deref() {
-                Some(o) => {
-                    let guard = self.0.manager.lock().map_err(|_| envenenado())?;
-                    layout_del_perfil(&guard, o)
+            // Antes que la resolución: una confirmación pendiente y la escena que ya no existe
+            // tienen que decir lo suyo (si no, los taparía "no reporta…").
+            let original_layout = {
+                let guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                if guard.has_pending_confirmation() {
+                    return Err(if guard.pending_is_test() {
+                        monarch::PRUEBA_PENDIENTE.to_string()
+                    } else {
+                        mensaje_de(ManagerError::ConfirmationPending)
+                    });
                 }
-                None => None,
+                original.as_deref().map(|o| layout_del_perfil(&guard, o))
             };
-            modos::validar_resoluciones(&datos.layout, original_layout.as_ref(), &pantallas)?;
+            // Solo modos que la pantalla reportó (o "Dejar la que tenga"). Lee Windows fuera
+            // del lock; la escena original se busca por su nombre de antes de editar. Si la
+            // borraron mientras se editaba, la validación no corre: `upsert_scene` da el error.
+            if !matches!(original_layout, Some(None)) {
+                let pantallas = self.pantallas_con_modos()?;
+                modos::validar_resoluciones(
+                    &datos.layout,
+                    original_layout.flatten().as_ref(),
+                    &pantallas,
+                )?;
+            }
             let nombre = {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
                 guard

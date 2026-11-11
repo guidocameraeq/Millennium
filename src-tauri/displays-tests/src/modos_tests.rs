@@ -357,3 +357,15 @@ fn una_lista_vacia_en_el_archivo_no_cuenta_como_recordada() {
     assert!(pantallas[0].modos.is_empty());
     assert!(!pantallas[0].recordados);
 }
+
+#[test]
+fn ya_la_tenia_es_de_la_misma_pantalla_no_de_otra() {
+    // Mutante: `mismo_monitor` → `true`. El monitor 1 ya estaba a 4K; la TV (2), que nunca
+    // contó sus modos, no hereda ese permiso.
+    let original = layout_de(vec![salida(1, true, 3840, 2160, 60_000)]);
+    let borrador = layout_de(vec![
+        salida(1, true, 3840, 2160, 60_000),
+        salida(2, true, 3840, 2160, 60_000),
+    ]);
+    assert!(validar_resoluciones(&borrador, Some(&original), &tv_con(vec![])).is_err());
+}
