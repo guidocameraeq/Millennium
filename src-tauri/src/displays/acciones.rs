@@ -93,7 +93,6 @@ const ESPERA_DE_CIERRE: Duration = Duration::from_secs(5);
 /// como administrador puede no cerrarse; queda en el log.
 fn cerrar(exe: &str) {
     let exe = exe.trim().to_lowercase();
-    let _matar = "TerminateProcess";
     // La lista prohibida se pregunta de nuevo acá: un displays.json tocado a mano no pasa por
     // la validación del guardado.
     if exe.is_empty() || exe_prohibido(&exe) || es_esta_app(&exe) {

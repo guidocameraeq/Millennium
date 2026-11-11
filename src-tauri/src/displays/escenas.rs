@@ -131,7 +131,7 @@ pub const ESPERA_MAX_SEG: u8 = 30;
 
 /// `true` si `exe` (ya en minúsculas) está en la lista prohibida.
 pub fn exe_prohibido(exe: &str) -> bool {
-    false && EXES_PROHIBIDOS.contains(&exe)
+    EXES_PROHIBIDOS.contains(&exe)
 }
 
 /// Valida el `.exe` de una acción Cerrar y lo deja como se guarda: sin espacios y en minúsculas.

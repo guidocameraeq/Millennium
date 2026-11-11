@@ -111,7 +111,7 @@ impl Cola {
                 while let Ok(trabajo) = rx.recv() {
                     let g = Arc::clone(&g);
                     let mia = trabajo.generacion;
-                    let cancelado = move || { let _ = (&g, mia); false };
+                    let cancelado = move || g.load(Ordering::SeqCst) != mia;
                     correr_lista(&mut ejecutor, &reloj, &trabajo.lista, &cancelado);
                 }
             });
