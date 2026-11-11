@@ -10,7 +10,8 @@
 //
 // Reglas (spec, "Acciones nuevas" y encargo 07):
 // - La pantalla se busca entre las PRENDIDAS: el id exacto o, si el adaptador cambió de LUID,
-//   la única con el mismo EDID. Apagada, no conectada o ambigua: se saltea y va al log.
+//   la única con el mismo EDID (sin EDID, el plan B del motor: mismo target en una sola placa).
+//   Apagada, no conectada o ambigua: se saltea y va al log.
 // - Sin soporte de HDR: log y sigue. Si ya está como se pide, no se toca.
 // - Se pide con la llamada nueva (`SET_HDR_STATE`, 24H2) y, si no quedó, con la vieja
 //   (`SET_ADVANCED_COLOR_STATE`). Doctrina: el código de retorno va solo al log; lo que decide
@@ -137,7 +138,8 @@ pub fn correr_hdr(io: &mut dyn PantallasHdr, pantalla: &str, prender: bool) -> D
 }
 
 /// La pantalla pedida entre las prendidas: el id exacto; si no, la única con el mismo EDID.
-/// Sin EDID no hay plan B: el mismo `target_id` en otra placa es otra pantalla.
+/// Sin EDID, el plan B del motor (`topology.rs`): mismo `target_id`, también sin EDID, y solo si
+/// esas candidatas están todas en UNA placa (iGPU y dGPU reusan los números de target).
 fn buscar(
     pedida: &DisplayId,
     prendidas: &[(DisplayId, String)],
@@ -145,13 +147,25 @@ fn buscar(
     if let Some(exacta) = prendidas.iter().find(|(id, _)| id == pedida) {
         return Ok(exacta.clone());
     }
-    let Some(edid) = pedida.edid_hash else {
-        return Err(Desenlace::NoSeVe);
+    let mismas: Vec<_> = match pedida.edid_hash {
+        Some(edid) => prendidas
+            .iter()
+            .filter(|(id, _)| id.edid_hash == Some(edid))
+            .collect(),
+        None => {
+            let por_target: Vec<_> = prendidas
+                .iter()
+                .filter(|(id, _)| id.edid_hash.is_none() && id.target_id == pedida.target_id)
+                .collect();
+            let una_placa = por_target
+                .windows(2)
+                .all(|par| par[0].0.adapter_luid == par[1].0.adapter_luid);
+            if !una_placa {
+                return Err(Desenlace::NoSeVe);
+            }
+            por_target
+        }
     };
-    let mismas: Vec<_> = prendidas
-        .iter()
-        .filter(|(id, _)| id.edid_hash == Some(edid))
-        .collect();
     match mismas.as_slice() {
         [una] => Ok((*una).clone()),
         [] => Err(Desenlace::NoSeVe),

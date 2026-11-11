@@ -99,8 +99,9 @@ impl Ejecutor for EjecutorReal {
 // Windows 11 24H2: `GET_ADVANCED_COLOR_INFO_2` (15) y `SET_HDR_STATE` (16). Esos se definen a
 // mano con el layout de `wingdi.h` (espejo mingw-w64), con su tamaño fijado abajo.
 //
-// Lectura: primero `_INFO_2` (24H2; "prendido" = `activeColorMode` HDR, porque en 24H2 el color
-// avanzado puede ser ACM sin HDR) y, si Windows no la conoce, la vieja (`advancedColorEnabled`).
+// Lectura: primero `_INFO_2` (24H2; "prendido" = interruptor HDR del usuario o `activeColorMode`
+// HDR, nunca el color avanzado a secas, que en 24H2 puede ser ACM sin HDR) y, si Windows no la
+// conoce, la vieja (`advancedColorEnabled`).
 // La lógica (qué pantalla, si soporta, pedir y re-leer) está en `hdr.rs`; acá solo las llamadas.
 // Solo toca el HDR de UNA pantalla: no pasa por `SetDisplayConfig` ni por el motor.
 
@@ -189,9 +190,11 @@ impl HdrDeWindows {
         if estado != 0 {
             return None;
         }
+        // "Prendido" = el interruptor "Usar HDR" de Configuración (bit 5) o el modo activo en
+        // HDR: así "apagar" no da "ya estaba" con el interruptor prendido y el modo sin HDR.
         Some(super::hdr::EstadoHdr {
             soportado: info.valor & (1 << 4) != 0,
-            prendido: info.active_color_mode == MODO_DE_COLOR_HDR,
+            prendido: info.valor & (1 << 5) != 0 || info.active_color_mode == MODO_DE_COLOR_HDR,
         })
     }
 

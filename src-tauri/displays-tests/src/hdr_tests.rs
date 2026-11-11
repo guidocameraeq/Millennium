@@ -145,11 +145,36 @@ fn el_id_exacto_gana_sobre_otra_con_el_mismo_edid() {
 }
 
 #[test]
-fn sin_edid_y_con_otro_adaptador_no_se_adivina() {
+fn sin_edid_se_encuentra_por_target_si_hay_una_sola_placa() {
+    // Una TV detrás de un receptor que no pasa el EDID: después de reiniciar cambia el LUID.
     let mut tv = Falsa::tele(true, false);
-    tv.prendidas = Ok(vec![(id(9, 2, None), "Otra".to_string())]);
-    assert_eq!(correr_hdr(&mut tv, "1:2:none", true), Desenlace::NoSeVe);
-    assert!(tv.pedidos.is_empty());
+    tv.prendidas = Ok(vec![
+        (id(9, 1, Some(101)), "Monitor".to_string()),
+        (id(9, 2, None), "TV sin EDID".to_string()),
+    ]);
+    assert_eq!(correr_hdr(&mut tv, "1:2:none", true), Desenlace::Cambio(Llamada::Nueva));
+    assert_eq!(tv.pedidos[0].0, id(9, 2, None));
+}
+
+#[test]
+fn sin_edid_no_se_adivina_entre_dos_placas_ni_con_otro_target() {
+    let mut dos_placas = Falsa::tele(true, false);
+    dos_placas.prendidas = Ok(vec![
+        (id(8, 2, None), "Una".to_string()),
+        (id(9, 2, None), "Otra".to_string()),
+    ]);
+    assert_eq!(correr_hdr(&mut dos_placas, "1:2:none", true), Desenlace::NoSeVe);
+    assert!(dos_placas.pedidos.is_empty());
+
+    let mut otro_target = Falsa::tele(true, false);
+    otro_target.prendidas = Ok(vec![(id(9, 3, None), "Otra".to_string())]);
+    assert_eq!(correr_hdr(&mut otro_target, "1:2:none", true), Desenlace::NoSeVe);
+    assert!(otro_target.pedidos.is_empty());
+
+    // Una con EDID no la reemplaza aunque comparta el target.
+    let mut con_edid = Falsa::tele(true, false);
+    con_edid.prendidas = Ok(vec![(id(9, 2, Some(55)), "Con EDID".to_string())]);
+    assert_eq!(correr_hdr(&mut con_edid, "1:2:none", true), Desenlace::NoSeVe);
 }
 
 #[test]
