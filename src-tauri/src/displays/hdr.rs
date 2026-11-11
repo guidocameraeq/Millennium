@@ -1,7 +1,8 @@
 // La acción HDR prender/apagar de las escenas (módulo escenas, encargo 07: la "03b" del spec).
 //
-// Corre SOLO como acción, en la cola (`cola.rs`), después de confirmar la escena: nunca dentro
-// del apply. El HDR no pasa por `SetDisplayConfig` ni por el motor (`apply.rs`, `topology.rs`).
+// Corre SOLO como acción, en la cola (`cola.rs`), después de confirmar la escena; su único
+// llamador es `EjecutorReal::hdr` (prueba `hdr_no_entra_al_camino_de_aplicar`). El HDR no pasa
+// por `SetDisplayConfig` ni por el motor (`apply.rs`, `topology.rs`).
 //
 // Este archivo es PURO: no nombra a `windows` ni a `tauri`. Las llamadas de verdad entran por
 // el trait `PantallasHdr`; en el programa lo implementa `acciones.rs`, y en las pruebas
@@ -12,8 +13,9 @@
 //   la única con el mismo EDID. Apagada, no conectada o ambigua: se saltea y va al log.
 // - Sin soporte de HDR: log y sigue. Si ya está como se pide, no se toca.
 // - Se pide con la llamada nueva (`SET_HDR_STATE`, 24H2) y, si no quedó, con la vieja
-//   (`SET_ADVANCED_COLOR_STATE`). Doctrina: nunca se juzga por el código de retorno; después de
-//   cada pedido se RE-LEE el estado, y si no quedó como se pidió: "HDR no cambió en <pantalla>".
+//   (`SET_ADVANCED_COLOR_STATE`). Doctrina: el código de retorno va solo al log; lo que decide
+//   es RE-LEER el estado después de cada pedido, y si no quedó como se pidió: "HDR no cambió en
+//   <pantalla>" (pruebas `si_la_nueva_dice_que_si_pero_no_cambio_nada...`, `si_ninguna_cambio...`).
 // - Un paso que falla no frena a los demás: esto loguea y vuelve.
 //
 // panic="abort": nada de `unwrap`/`expect` acá.
@@ -71,7 +73,7 @@ pub enum Desenlace {
 pub const ESPERA_DE_RELECTURA: Duration = Duration::from_secs(2);
 const PAUSA_ENTRE_LECTURAS: Duration = Duration::from_millis(250);
 
-/// Corre una acción HDR. Nunca falla hacia afuera: todo desenlace queda en el log.
+/// Corre una acción HDR. No devuelve error: todo desenlace queda en el log y la cola sigue.
 pub fn correr_hdr(io: &mut dyn PantallasHdr, pantalla: &str, prender: bool) -> Desenlace {
     let que = if prender { "prender" } else { "apagar" };
     let pedida = match parse_display_id(pantalla.trim()) {

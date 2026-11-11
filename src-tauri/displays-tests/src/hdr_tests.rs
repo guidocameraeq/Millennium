@@ -190,7 +190,7 @@ fn si_no_se_puede_leer_el_estado_no_se_toca() {
     assert!(tv.pedidos.is_empty());
 }
 
-// ── Pedir y re-leer: nunca se juzga por el código de retorno ────────────────────────
+// ── Pedir y re-leer: decide lo que se re-lee, no el código de retorno ───────────────
 
 #[test]
 fn prender_con_la_llamada_nueva_y_no_hace_falta_la_vieja() {
@@ -265,4 +265,35 @@ fn la_espera_de_la_relectura_tiene_tope() {
         "dos llamadas, cada una con su espera de a lo sumo {ESPERA_DE_RELECTURA:?}: durmió {:?}",
         tv.dormido
     );
+}
+
+// ── HDR va solo como acción, fuera del camino de aplicar ────────────────────────────
+
+/// Sin Windows no se puede correr el apply: se lee su texto. El motor no nombra al HDR nuevo
+/// y la única entrada a `correr_hdr` es el ejecutor de la cola.
+#[test]
+fn hdr_no_entra_al_camino_de_aplicar() {
+    let sin_comentarios = |fuente: &str| -> String {
+        fuente
+            .lines()
+            .filter(|linea| !linea.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for (nombre, fuente) in [
+        ("apply.rs", include_str!("../../src/displays/apply.rs")),
+        ("topology.rs", include_str!("../../src/displays/topology.rs")),
+        ("watchdog.rs", include_str!("../../src/displays/watchdog.rs")),
+        ("mod.rs", include_str!("../../src/displays/mod.rs")),
+    ] {
+        let codigo = sin_comentarios(fuente);
+        for prohibido in ["correr_hdr", "hdr::", "SetDeviceInfo"] {
+            assert!(
+                !codigo.contains(prohibido),
+                "{nombre} no puede usar {prohibido}: el HDR corre solo como acción, en la cola"
+            );
+        }
+    }
+    let acciones = sin_comentarios(include_str!("../../src/displays/acciones.rs"));
+    assert_eq!(acciones.matches("correr_hdr(").count(), 1, "una sola entrada: EjecutorReal::hdr");
 }
