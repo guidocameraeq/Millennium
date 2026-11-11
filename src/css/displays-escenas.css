@@ -195,7 +195,8 @@
 }
 .scene-emoji-row, .scene-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
 .scene-row { margin-top: 0; }
-.scene-emoji { font-size: 20px; letter-spacing: 0; }
+/* Con .modal-btn delante: `.modal-btn.small` (10px) le ganaba y el emoji se veía diminuto. */
+.modal-btn.scene-emoji { font-size: 24px; line-height: 1.2; letter-spacing: 0; padding: 4px 10px; min-width: 46px; }
 .scene-emoji.is-on, .scene-emoji-none.is-on { background: var(--app-accent-soft); border-color: var(--app-accent); }
 .scene-copy-live { margin-bottom: 8px; }
 .scene-select { max-width: 100%; }
@@ -297,3 +298,18 @@
 /* El cuerpo de Displays tiene que poder scrollear dentro del marco: así la barra
    fija del editor queda pegada al borde de abajo del marco y no del contenido. */
 .displays-shell > .modal-body { min-height: 0; }
+
+/* Aviso fijo arriba de la lista (displays-escenas.js: setSceneNotice) y renglón de avisos del
+   cartel de confirmación (displays.js: renderPendingWarnings). Ámbar: no es un error. */
+.scenes-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--neon-amber);
+  background: rgba(60, 44, 0, 0.35);
+}
+.scenes-notice[hidden] { display: none !important; }
+.scenes-notice-line { margin: 0 0 4px; font-size: 12px; color: var(--neon-amber); overflow-wrap: anywhere; }
+.scenes-notice-close { float: right; margin-left: 10px; }
+.displays-banner-inner.has-warn { flex-wrap: wrap; }
+.displays-banner-warn { flex: 1 1 100%; order: 9; font-size: 11px; letter-spacing: 1px; color: var(--text-bright); }
+.displays-banner-warn p { margin: 2px 0 0; overflow-wrap: anywhere; }

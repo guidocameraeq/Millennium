@@ -40,6 +40,7 @@
   const scenesNewBtn = document.getElementById('scenes-new');
   const scenesChooser = document.getElementById('scenes-chooser');
   const scenesBlockReason = document.getElementById('scenes-block-reason');
+  const scenesNotice = document.getElementById('scenes-notice');
   const displaysRevertSecsInput = document.getElementById('displays-revert-secs');
   const displaysSettingsSaveBtn = document.getElementById('displays-settings-save');
   // Displays v2, Fase 1: perfil de arranque + interruptor de atajos.
@@ -92,6 +93,9 @@
   // La cuenta regresiva es de un PROBAR (displays_test_draft), no de un cambio
   // común: lo dicen el snapshot (pending.isTest) y el evento displays-confirmation.
   let displaysPendingIsTest = false;
+  // Avisos del aplicado (evento displays-confirmation, `warnings`): "Windows dejó otra
+  // resolución". Se muestran en el cartel mientras dura la confirmación.
+  let displaysPendingWarnings = [];
   // Displays v2, Fase 1: AJUSTES recién es seguro de guardar cuando loadSettings
   // terminó de poblar los controles. Sin esto, un cambio disparado durante la
   // carga mandaría los defaults vacíos y borraría el perfil de arranque guardado.
@@ -113,9 +117,38 @@
     displaysLastShownSec = -1;
   }
 
+  // Los avisos van en un renglón propio del cartel, armado solo cuando hay (sin avisos el
+  // cartel queda exactamente como siempre). Todo texto por textContent.
+  function renderPendingWarnings() {
+    const inner = displaysPendingBar && displaysPendingBar.querySelector('.displays-banner-inner');
+    if (!inner) return;
+    const avisos = displaysPendingWarnings;
+    let box = inner.querySelector('.displays-banner-warn');
+    if (!avisos.length) {
+      if (box) box.remove();
+      inner.classList.remove('has-warn');
+      return;
+    }
+    const key = avisos.join('\n');
+    if (box && box.dataset.key === key) return;
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'displays-banner-warn mono';
+      inner.appendChild(box);
+    }
+    box.dataset.key = key;
+    box.replaceChildren(...avisos.map((w) => {
+      const p = document.createElement('p');
+      p.textContent = `⚠ ${w}`;
+      return p;
+    }));
+    inner.classList.add('has-warn');
+  }
+
   function renderDisplaysPending() {
     const pending = state.displaysPending;
     if (displaysPendingBar) displaysPendingBar.hidden = !pending;
+    renderPendingWarnings();
     if (!pending) return;
     // Un PROBAR habla de quedarse o volver; un cambio común, de confirmar o revertir.
     if (displaysConfirmBtn) displaysConfirmBtn.textContent = displaysPendingIsTest ? '✓ ME QUEDO' : '✓ CONFIRMAR';
@@ -153,6 +186,7 @@
   function clearDisplaysPending() {
     stopDisplaysCountdown();
     state.displaysPending = null;
+    displaysPendingWarnings = [];
     renderDisplaysPending();
   }
 
