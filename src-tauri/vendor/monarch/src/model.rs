@@ -91,7 +91,8 @@ pub struct Profile {
 
 /// Un modo que una pantalla le dijo a Windows que acepta (módulo escenas, encargo 02): lo
 /// que ofrece el selector de resolución del editor. En `displays.json` va como
-/// `{width, height, refreshMhz}` (la forma del contrato). La frecuencia 0 nunca se guarda.
+/// `{width, height, refreshMhz}` (la forma del contrato). `normalize_display_modes` descarta
+/// los de frecuencia 0 antes de guardar.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplayMode {
