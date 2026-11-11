@@ -52,6 +52,9 @@ mod backend;
 mod cola;
 #[cfg(target_os = "windows")]
 mod enumerate;
+// La acción HDR de las escenas (encargo 07): pura; sus llamadas de Windows viven en `acciones.rs`.
+#[cfg(target_os = "windows")]
+mod hdr;
 #[cfg(target_os = "windows")]
 mod ids;
 // La puesta ahora usa `monarch` y `escenas::mismo_monitor`: solo Windows (encargo 04 de escenas).
