@@ -788,7 +788,7 @@ where
                 continue;
             };
             let modes = normalize_display_modes(modes.clone());
-            if false && modes.is_empty() {
+            if modes.is_empty() {
                 continue;
             }
             if config.settings.display_modes.get(&key) != Some(&modes) {
