@@ -174,6 +174,15 @@ pub enum ActionV2 {
     Volumen {
         nivel: u8,
     },
+    /// Cerrar con buenos modos las ventanas de un programa, por nombre de `.exe` (sin ruta,
+    /// en minúsculas). Nunca mata el proceso (encargo 03).
+    Cerrar {
+        exe: String,
+    },
+    /// Esperar `segundos` (1–30) antes de seguir con la próxima acción (encargo 03).
+    Esperar {
+        segundos: u8,
+    },
     #[serde(other)]
     Desconocida,
 }
@@ -188,7 +197,7 @@ impl ActionV2 {
                 args: args.clone(),
             }),
             Self::Volumen { nivel } => Some(Accion::Volumen { nivel: *nivel }),
-            Self::Desconocida => None,
+            Self::Cerrar { .. } | Self::Esperar { .. } | Self::Desconocida => None,
         }
     }
 }
