@@ -138,8 +138,8 @@ fn pasados_los_60_segundos_lo_que_falta_se_saltea() {
 
 #[test]
 fn un_esperar_no_puede_pasar_el_tope_aunque_antes_se_haya_gastado_tiempo() {
-    // Cerrar "tardó" 50 s: a un Esperar 30 le quedan 10.
-    let (eventos, _) = correr(
+    // Cerrar "tardó" 50 s: a un Esperar 30 le quedan 10, y con eso se llega al tope de 60 s.
+    let (eventos, salteados) = correr(
         &[
             ActionV2::Cerrar {
                 exe: "a.exe".to_string(),
@@ -150,7 +150,8 @@ fn un_esperar_no_puede_pasar_el_tope_aunque_antes_se_haya_gastado_tiempo() {
         false,
         50,
     );
-    assert_eq!(eventos, ["cerrar a.exe", "dormir 10", "lanzar x"]);
+    assert_eq!(eventos, ["cerrar a.exe", "dormir 10"]);
+    assert_eq!(salteados, 1, "el Lanzar ya no entra en el tope");
 }
 
 /// Reloj de la cola: dormir espera a que lo liberen o a que llegue otra lista.
