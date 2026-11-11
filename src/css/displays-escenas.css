@@ -155,6 +155,8 @@
 .scene-acts-row .modal-btn, .scene-moves .modal-btn { flex: 1; }
 .scene-reason { margin: 0; max-width: 150px; }
 .scene-reason[hidden] { display: none !important; }
+/* Aviso ancho del editor (el .scene-reason de arriba es la columna angosta de la tarjeta). */
+.scene-note { margin: 0 0 14px; font-size: 12px; line-height: 1.5; color: var(--neon-amber); }
 .scene-menu {
   position: absolute;
   right: 14px;
