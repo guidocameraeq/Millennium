@@ -217,7 +217,7 @@
         setTimeout(() => { inp.focus(); inp.select(); }, 0);
       }
     }
-    inline.querySelectorAll('button').forEach((b) => { b.disabled = locked; });
+    inline.querySelectorAll('button, input').forEach((b) => { b.disabled = locked; });
   }
 
   function renderSceneChooser() {
@@ -899,7 +899,11 @@
       const inp = e.target && e.target.closest ? e.target.closest('.scene-rename-input') : null;
       if (!inp) return;
       const li = inp.closest('li.scene-card');
-      if (e.key === 'Enter') { e.preventDefault(); submitSceneRename(li, li.dataset.name); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (state.displaysBusy || sceneBlockReason()) return; // bloqueado: el motivo ya está escrito en la tarjeta
+        submitSceneRename(li, li.dataset.name);
+      }
       else if (e.key === 'Escape') { e.stopPropagation(); scenesUi.rename = null; renderScenes(); }
     });
     ['dragstart', 'dragover', 'drop', 'dragend'].forEach((t) => scenesList.addEventListener(t, onScenesDrag));

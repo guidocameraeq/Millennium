@@ -731,7 +731,9 @@
     const cancel = mkBtn('modal-btn small', 'CANCELAR');
     cancel.addEventListener('click', requestCancel);
     const probar = mkBtn('modal-btn small scene-test', 'PROBAR');
-    probar.disabled = sceneEd.busy || state.displaysBusy || !!state.displaysPending || !sceneEd.draft.outputs.some((o) => o.enabled);
+    const accionesIncompletas = problems.some((p) => /^Al (entrar|salir):/.test(p));
+    probar.disabled = sceneEd.busy || state.displaysBusy || !!state.displaysPending
+      || !sceneEd.draft.outputs.some((o) => o.enabled) || accionesIncompletas;
     probar.addEventListener('click', testDraft);
     const guardar = mkBtn('modal-btn small accept scene-save', 'GUARDAR');
     guardar.disabled = sceneEd.busy || state.displaysBusy || !!state.displaysPending || problems.length > 0;
@@ -755,6 +757,7 @@
 
   async function testDraft() {
     if (sceneEd.busy || state.displaysBusy || state.displaysPending) return;
+    if (sceneEdProblems().some((p) => /^Al (entrar|salir):/.test(p))) return; // acciones a medio armar: la barra dice cuál
     sceneEd.busy = true;
     state.displaysBusy = true;
     sceneEd.error = '';

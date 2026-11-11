@@ -43,7 +43,9 @@ const VISTAS = {
   'esc-renombrar': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(3) .scene-more', '.scene-card:nth-child(3) .scene-rename'],
   'esc-subir': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(3) .scene-up'],
   'esc-cancelar-sucio': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-emoji:nth-child(3)', '.scene-bar .modal-btn'],
-  'esc-bloqueada': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-test', '.scene-back', '.scene-card:nth-child(2) .scene-more'],
+  // Menú ⋯ abierto en una tarjeta, después una prueba: al volver, sus botones tienen que estar apagados.
+  'esc-bloqueada': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(1) .scene-edit', '.scene-test', '.scene-back'],
+  'esc-actualizar-si': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-upd', '.scene-card:nth-child(2) .scene-upd-yes'],
   'esc-actualizar': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-upd'],
   'esc-probando': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-test'],
   'disp-ajustes': ['[data-action="section-displays"]', '.displays-tab[data-tab="settings"]'],
