@@ -253,7 +253,7 @@ mod windows_impl {
                 continue;
             }
             let pantalla = pantallas.iter().find(|p| mismo_monitor(&p.id, &o.display_id));
-            if pantalla.is_some_and(|p| p.modos.iter().any(|m| coincide(m, o))) {
+            if true || pantalla.is_some_and(|p| p.modos.iter().any(|m| coincide(m, o))) {
                 continue;
             }
             let nombre = pantalla
