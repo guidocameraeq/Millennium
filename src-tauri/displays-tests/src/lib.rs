@@ -76,6 +76,10 @@ mod escenas_tests;
 #[cfg(test)]
 mod modos_tests;
 
+// Acciones nuevas, cola y listas de Steam/Chrome (encargo 03 de escenas).
+#[cfg(test)]
+mod acciones_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {

@@ -245,7 +245,7 @@ fn una_accion_de_una_version_mas_nueva_se_lee_como_desconocida() {
         "entrada": [],
         "salida": [],
         "entrada_v2": [
-            {"tipo":"cerrar","exe":"steam.exe"},
+            {"tipo":"apagar_la_pc","cuando":"ya"},
             {"tipo":"volumen","nivel":30},
             {"tipo":"hdr","pantalla":"1:2:3","prender":true}
         ],
@@ -350,5 +350,76 @@ fn la_etiqueta_solo_se_escribe_si_existe() {
             args: vec![],
             etiqueta: Some("Mi A".to_string()),
         }
+    );
+}
+
+// ── Encargo 03: Cerrar y Esperar ────────────────────────────────────────────────────
+
+#[test]
+fn cerrar_y_esperar_se_leen_y_se_escriben_con_el_tag_del_contrato() {
+    let cerrar: ActionV2 = serde_json::from_str(r#"{"tipo":"cerrar","exe":"steam.exe"}"#).unwrap();
+    assert_eq!(
+        cerrar,
+        ActionV2::Cerrar {
+            exe: "steam.exe".to_string()
+        }
+    );
+    let esperar: ActionV2 = serde_json::from_str(r#"{"tipo":"esperar","segundos":5}"#).unwrap();
+    assert_eq!(esperar, ActionV2::Esperar { segundos: 5 });
+    assert_eq!(
+        serde_json::to_value(&cerrar).unwrap(),
+        serde_json::json!({"tipo": "cerrar", "exe": "steam.exe"})
+    );
+    assert_eq!(
+        serde_json::to_value(&esperar).unwrap(),
+        serde_json::json!({"tipo": "esperar", "segundos": 5})
+    );
+}
+
+#[test]
+fn cerrar_y_esperar_viven_en_v2_y_no_en_las_listas_viejas() {
+    let acciones = PerfilAcciones::desde_v2(
+        vec![
+            ActionV2::Cerrar {
+                exe: "steam.exe".to_string(),
+            },
+            ActionV2::Esperar { segundos: 30 },
+            ActionV2::Volumen { nivel: 40 },
+        ],
+        vec![ActionV2::Esperar { segundos: 2 }],
+    );
+    assert_eq!(
+        acciones.entrada,
+        vec![Accion::Volumen { nivel: 40 }],
+        "Accion no sabe Cerrar ni Esperar: las viejas llevan solo lo que entienden"
+    );
+    assert!(acciones.salida.is_empty());
+    assert_eq!(acciones.entrada_v2.as_ref().map(Vec::len), Some(3));
+    assert_eq!(acciones.salida_v2.as_ref().map(Vec::len), Some(1));
+    assert!(!acciones.esta_vacia(), "una escena con solo Esperar tiene acciones");
+}
+
+#[test]
+fn la_version_de_hoy_abre_un_archivo_con_cerrar_y_esperar() {
+    let mut config = AppConfig::default();
+    config.settings.profile_actions.insert(
+        "Jugar".to_string(),
+        PerfilAcciones::desde_v2(
+            vec![
+                ActionV2::Cerrar {
+                    exe: "discord.exe".to_string(),
+                },
+                ActionV2::Esperar { segundos: 5 },
+                ActionV2::Volumen { nivel: 20 },
+            ],
+            vec![],
+        ),
+    );
+    let json = serde_json::to_vec_pretty(&config).unwrap();
+    let leido: hoy::AppConfig = serde_json::from_slice(&json)
+        .expect("la versión de hoy tiene que abrir el archivo sin tratarlo de corrupto");
+    assert_eq!(
+        leido.settings.profile_actions["Jugar"].entrada,
+        vec![hoy::Accion::Volumen { nivel: 20 }]
     );
 }
