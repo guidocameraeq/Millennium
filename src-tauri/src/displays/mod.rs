@@ -58,13 +58,16 @@ mod system_events;
 #[cfg(target_os = "windows")]
 #[allow(dead_code)] // ídem: parte del motor donante no la ejerce el toggle
 mod topology;
-// Sin `cfg(windows)` a propósito: es lo que `displays-tests` puede correr.
+// Sin `cfg(windows)` a propósito: es lo que `displays-tests` puede correr. Los tipos de
+// las escenas se nombran en cualquier plataforma; sus conversiones son solo Windows.
+mod escenas;
 mod view;
 #[cfg(target_os = "windows")]
 mod watchdog;
 #[cfg(target_os = "windows")]
 mod win32_types;
 
+pub use escenas::{SceneDraft, SceneView, ScenesResult};
 pub use view::DisplayView;
 use view::mock_displays;
 // Solo los usa el camino de Windows (`views_from_topology` y `estado`).
@@ -95,6 +98,9 @@ pub struct PendingView {
     /// manda. La UI lo usa para rehidratar la cuenta regresiva si el usuario
     /// cerró y reabrió el modal en el medio.
     pub remaining_ms: u64,
+    /// `true` si la cuenta regresiva es de PROBAR un borrador (la pantalla bloquea GUARDAR,
+    /// RENOMBRAR, BORRAR, DUPLICAR y ↻ mientras dura). Falta = `false`.
+    pub is_test: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -360,6 +366,9 @@ pub const EVENTO_CONFIRMACION: &str = "displays-confirmation";
 /// asignada no está presente (TV apagada). Canal aparte del de confirmación para
 /// no ensuciar la máquina de estados del banner de auto-revert.
 pub const EVENTO_AUDIO: &str = "displays-audio";
+/// La lista de escenas cambió (guardar, renombrar, duplicar, reordenar, borrar…). El payload
+/// es `{ "kind": … }`; la pantalla vuelve a pedir `displays_list_scenes`.
+pub const EVENTO_ESCENAS: &str = "displays-scenes-changed";
 
 /// Cómo este módulo le habla al frontend, **sin conocer a Tauri**.
 ///
@@ -378,18 +387,23 @@ mod estado {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use monarch::{Accion, AudioTarget, Layout, MonarchDisplayManager, PerfilAcciones, Profile};
+    use monarch::{
+        copy_name, Accion, AudioTarget, Layout, ManagerError, MonarchDisplayManager, PerfilAcciones,
+        Profile,
+    };
 
     use super::acciones;
     use super::audio;
     use super::backend::SystemDisplayBackend;
+    use super::escenas;
     use super::ids::{format_display_id, parse_display_id};
     use super::store::MillenniumConfigStore;
     use super::watchdog::{self, Desenlace};
     use super::{
         diagnostics, mark_can_detach, ActionView, AudioView, DisplayView, DisplaysSnapshot, Emisor,
-        PendingView, PosicionView, ProfileActionsView, ProfileView, SettingsView, EVENTO_AUDIO,
-        EVENTO_CAMBIO, EVENTO_CONFIRMACION, FORCE_MOCK_ENV,
+        PendingView, PosicionView, ProfileActionsView, ProfileView, SceneDraft, SceneView,
+        ScenesResult, SettingsView, EVENTO_AUDIO, EVENTO_CAMBIO, EVENTO_CONFIRMACION,
+        EVENTO_ESCENAS, FORCE_MOCK_ENV,
     };
 
     type Manager = MonarchDisplayManager<SystemDisplayBackend, MillenniumConfigStore>;
@@ -524,6 +538,7 @@ mod estado {
             let restante = guard.pending_confirmation_remaining()?;
             Some(PendingView {
                 remaining_ms: restante.as_millis() as u64,
+                is_test: guard.pending_is_test(),
             })
         }
 
@@ -787,12 +802,19 @@ mod estado {
         /// Guarda el layout actual con un nombre. Si el nombre ya existe, el
         /// manager lo pisa; la confirmación de "vas a pisar 'X'" es del frontend,
         /// que es donde el usuario ve la lista. Devuelve la lista actualizada.
-        pub fn guardar_perfil(&self, nombre: &str) -> Result<Vec<ProfileView>, String> {
+        pub fn guardar_perfil(
+            &self,
+            nombre: &str,
+            reemplazar: bool,
+        ) -> Result<Vec<ProfileView>, String> {
             {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
-                guard.save_profile(nombre).map_err(|e| e.to_string())?;
+                guard
+                    .save_profile(nombre, reemplazar)
+                    .map_err(mensaje_de)?;
             }
             diagnostics::log("perfil:guardado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -807,7 +829,7 @@ mod estado {
         pub fn borrar_perfil(&self, nombre: &str) -> Result<Vec<ProfileView>, String> {
             {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
-                guard.delete_profile(nombre).map_err(|e| e.to_string())?;
+                guard.delete_profile(nombre).map_err(mensaje_de)?;
                 let mut ajustes = guard.settings().clone();
                 let mut cambio = ajustes.profile_shortcuts.remove(nombre).is_some();
                 // Limpiar también la salida de audio del perfil borrado, para no
@@ -817,6 +839,10 @@ mod estado {
                 }
                 // Ídem las acciones (Fase 4): no dejar escena huérfana.
                 if ajustes.profile_actions.remove(nombre).is_some() {
+                    cambio = true;
+                }
+                // Ídem el emoji (módulo escenas).
+                if ajustes.profile_icons.remove(nombre).is_some() {
                     cambio = true;
                 }
                 if ajustes.startup_profile_name.as_deref() == Some(nombre) {
@@ -831,6 +857,7 @@ mod estado {
             // estado (fuera del lock del manager: toca otros mutex).
             self.olvidar_escena_si_es(nombre);
             diagnostics::log("perfil:borrado");
+            self.avisar_escenas("deleted");
             self.listar_perfiles()
         }
 
@@ -865,6 +892,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("atajo:asignado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -878,6 +906,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("atajo:limpiado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -987,6 +1016,205 @@ mod estado {
                     // quedan pendientes y corren en `confirm`, no acá.
                     self.marcar_escena_pendiente(nombre);
                     self.aplicar_con_red(plazo).map(|_| ())
+                }
+            }
+        }
+
+        // --- escenas en papel (módulo escenas, encargo 01) -------------------
+
+        /// Lo que hace falta para armar vistas, leído de una vez con el lock corto.
+        fn insumos_de_escenas(&self) -> Result<InsumosEscenas, String> {
+            let guard = self.0.manager.lock().map_err(|_| envenenado())?;
+            Ok(InsumosEscenas {
+                perfiles: guard.list_profiles(),
+                ajustes: guard.settings().clone(),
+                huellas: guard.config().display_fingerprints.clone(),
+                actual: guard.get_layout().map_err(|e| e.to_string())?,
+                infos: guard.list_displays().unwrap_or_default(),
+            })
+        }
+
+        /// La lista nueva de la pestaña ESCENAS, en el orden de Guido.
+        pub fn listar_escenas(&self) -> Result<Vec<SceneView>, String> {
+            let i = self.insumos_de_escenas()?;
+            let activa = self.0.escena_activa.lock().ok().and_then(|g| g.clone());
+            Ok(i.perfiles
+                .iter()
+                .map(|p| {
+                    escenas::vista_de_escena(p, &i.ajustes, &i.huellas, &i.infos, activa.as_deref())
+                })
+                .collect())
+        }
+
+        /// Arma un borrador SIN tocar nada: `current`, `blank`, `scene` o `copy`.
+        pub fn borrador_de_escena(
+            &self,
+            desde: &str,
+            nombre: Option<&str>,
+        ) -> Result<SceneDraft, String> {
+            let i = self.insumos_de_escenas()?;
+            match desde {
+                "current" => Ok(escenas::borrador_actual(&i.actual, &i.huellas, &i.infos)),
+                "blank" => Ok(escenas::borrador_en_blanco(&i.actual, &i.huellas, &i.infos)),
+                "scene" => {
+                    let perfil = buscar_escena(&i.perfiles, nombre)?;
+                    Ok(escenas::borrador_de_escena(
+                        perfil, &i.ajustes, &i.actual, &i.huellas, &i.infos,
+                    ))
+                }
+                "copy" => {
+                    let perfil = buscar_escena(&i.perfiles, nombre)?;
+                    let copia = copy_name(&perfil.name, &i.perfiles);
+                    Ok(escenas::borrador_de_copia(
+                        perfil, &i.ajustes, &i.actual, &i.huellas, &i.infos, copia,
+                    ))
+                }
+                _ => Err("no sé de dónde armar la escena".to_string()),
+            }
+        }
+
+        /// GUARDAR un borrador (crear o editar), en un solo guardado y sin tocar ninguna
+        /// pantalla. Si el nombre cambió es además un renombre: la escena activa/pendiente
+        /// en memoria sigue a su nombre nuevo. Registrar el atajo es cosa del comando.
+        pub fn guardar_escena(
+            &self,
+            borrador: SceneDraft,
+            original: Option<String>,
+        ) -> Result<ScenesResult, String> {
+            let datos = escenas::datos_de_borrador(&borrador)?;
+            let nombre = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard
+                    .upsert_scene(original.as_deref(), datos)
+                    .map_err(mensaje_de)?
+            };
+            let renombrada = original.as_deref().is_some_and(|o| o != nombre);
+            if let Some(vieja) = original.as_deref().filter(|o| *o != nombre) {
+                self.renombrar_escena_viva(vieja, &nombre);
+            }
+            diagnostics::log("escena:guardada");
+            self.avisar_escenas(if renombrada { "renamed" } else { "saved" });
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: Some(nombre),
+                warnings: Vec::new(),
+            })
+        }
+
+        /// RENOMBRAR: mueve atajo, sonido, acciones, emoji y arranque en un solo guardado.
+        pub fn renombrar_escena(&self, nombre: &str, nuevo: &str) -> Result<ScenesResult, String> {
+            let final_ = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard.rename_scene(nombre, nuevo).map_err(mensaje_de)?
+            };
+            if final_ != nombre {
+                self.renombrar_escena_viva(nombre, &final_);
+                diagnostics::log("escena:renombrada");
+                self.avisar_escenas("renamed");
+            }
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: Some(final_),
+                warnings: Vec::new(),
+            })
+        }
+
+        /// DUPLICAR: copia sin atajo ni arranque, al final de la lista.
+        pub fn duplicar_escena(&self, nombre: &str) -> Result<ScenesResult, String> {
+            let copia = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard.duplicate_scene(nombre).map_err(mensaje_de)?
+            };
+            diagnostics::log("escena:duplicada");
+            self.avisar_escenas("duplicated");
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: Some(copia),
+                warnings: Vec::new(),
+            })
+        }
+
+        /// ↑/↓ y arrastrar: `nombres` tiene que ser exactamente el conjunto de hoy.
+        pub fn reordenar_escenas(&self, nombres: Vec<String>) -> Result<ScenesResult, String> {
+            {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard.reorder_scenes(&nombres).map_err(mensaje_de)?;
+            }
+            diagnostics::log("escena:reordenadas");
+            self.avisar_escenas("reordered");
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: None,
+                warnings: Vec::new(),
+            })
+        }
+
+        /// PROBAR un borrador: aplica pantallas y sonido con la red de siempre, pero NO escribe
+        /// escenas, NO corre acciones y NO marca `escena_pendiente` ni `escena_activa`.
+        pub fn probar_borrador(&self, borrador: SceneDraft) -> Result<DisplaysSnapshot, String> {
+            let layout = escenas::layout_de_salidas(&borrador.outputs)?;
+            if layout.enabled_output_count() == 0 {
+                return Err("tiene que quedar al menos una pantalla prendida".to_string());
+            }
+            let audio_del_borrador = borrador.audio.as_ref().map(|a| AudioTarget {
+                endpoint_id: a.endpoint_id.clone(),
+                friendly_name: a.friendly_name.clone(),
+            });
+
+            let plazo = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                // Antes de tocar Windows: una pantalla prendida que no está conectada.
+                let faltan = guard
+                    .unresolved_enabled_outputs(&layout)
+                    .map_err(|e| e.to_string())?;
+                if let Some(falta) = faltan.first() {
+                    let nombre = borrador
+                        .outputs
+                        .iter()
+                        .zip(layout.outputs.iter())
+                        .find(|(_, l)| &l.display_id == falta)
+                        .map(|(o, _)| {
+                            if o.name.trim().is_empty() {
+                                o.display_id.clone()
+                            } else {
+                                o.name.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| format_display_id(falta));
+                    return Err(format!(
+                        "{nombre} no está conectada: conectala o apagala en la escena para probar"
+                    ));
+                }
+                guard.apply_draft(layout).map_err(mensaje_de)?;
+                guard.pending_confirmation_remaining()
+            };
+
+            if let Some(objetivo) = &audio_del_borrador {
+                // Con red solo si el video quedó pendiente: sin cambio de video no hay a qué
+                // volver atrás (mismo criterio que `cargar_perfil`).
+                self.aplicar_audio_objetivo(&borrador.name, objetivo, plazo.is_some());
+            }
+            diagnostics::log("escena:probada");
+            match plazo {
+                Some(plazo) => self.aplicar_con_red(plazo),
+                None => {
+                    self.avisar_cambio();
+                    self.snapshot()
+                }
+            }
+        }
+
+        /// Un renombre en memoria: la escena activa/pendiente sigue a su nombre nuevo (así su
+        /// "Al salir" y el sello siguen andando). Fuera del lock del manager.
+        fn renombrar_escena_viva(&self, vieja: &str, nueva: &str) {
+            if let Ok(mut slot) = self.0.escena_activa.lock() {
+                if slot.as_deref() == Some(vieja) {
+                    *slot = Some(nueva.to_string());
+                }
+            }
+            if let Ok(mut slot) = self.0.escena_pendiente.lock() {
+                if slot.as_deref() == Some(vieja) {
+                    *slot = Some(nueva.to_string());
                 }
             }
         }
@@ -1150,10 +1378,7 @@ mod estado {
                         "[displays] no se pudo leer cómo quedó ({err}); el watchdog queda armado, así que si no confirmás vuelve solo"
                     ));
                     self.armar_watchdog(plazo);
-                    self.avisar_confirmacion(serde_json::json!({
-                        "kind": "applied",
-                        "timeoutMs": plazo.as_millis() as u64,
-                    }));
+                    self.avisar_confirmacion(self.payload_aplicado(plazo));
                     self.avisar_cambio();
                     return Err(format!(
                         "el cambio se aplicó pero no se pudo leer cómo quedó ({err}). Si la pantalla está bien, confirmá; si no, esperá y vuelve sola."
@@ -1162,15 +1387,31 @@ mod estado {
             };
 
             self.armar_watchdog(plazo);
-            self.avisar_confirmacion(serde_json::json!({
-                "kind": "applied",
-                "timeoutMs": plazo.as_millis() as u64,
-            }));
+            self.avisar_confirmacion(self.payload_aplicado(plazo));
             self.avisar_cambio();
 
             let mut foto = despues;
             foto.pending = self.pendiente();
             Ok(foto)
+        }
+
+        /// El aviso `applied`. Si lo pendiente es una PRUEBA de borrador suma `isTest: true`
+        /// (campo opcional: falta = cambio común).
+        fn payload_aplicado(&self, plazo: Duration) -> serde_json::Value {
+            let mut payload = serde_json::json!({
+                "kind": "applied",
+                "timeoutMs": plazo.as_millis() as u64,
+            });
+            let es_prueba = self
+                .0
+                .manager
+                .lock()
+                .map(|guard| guard.pending_is_test())
+                .unwrap_or(false);
+            if es_prueba {
+                payload["isTest"] = serde_json::Value::Bool(true);
+            }
+            payload
         }
 
         /// Lanza el gatillo del auto-rollback.
@@ -1273,6 +1514,12 @@ mod estado {
             (self.0.emisor)(EVENTO_AUDIO, payload);
         }
 
+        /// Avisa que la lista de escenas cambió (`kind`: saved, renamed, duplicated,
+        /// reordered, deleted, current). El payload no trae la lista: la pantalla la vuelve a pedir.
+        pub fn avisar_escenas(&self, kind: &str) {
+            (self.0.emisor)(EVENTO_ESCENAS, serde_json::json!({ "kind": kind }));
+        }
+
         // --- audio por perfil (Fase 3) --------------------------------------
 
         /// Aplica la salida de audio del perfil `nombre`, si tiene una asignada y
@@ -1293,6 +1540,12 @@ mod estado {
             let Some(target) = target else {
                 return; // "No tocar el audio".
             };
+            self.aplicar_audio_objetivo(nombre, &target, hay_red);
+        }
+
+        /// Aplica una salida de audio concreta (la de un perfil guardado o la de un borrador en
+        /// PRUEBA). `nombre` es solo para el log. Misma red que `aplicar_audio_de_perfil`.
+        fn aplicar_audio_objetivo(&self, nombre: &str, target: &AudioTarget, hay_red: bool) {
             // Capturar el default ACTUAL antes de cambiarlo (solo si hay red que
             // pueda revertir). Sin el lock del manager tomado.
             let previo = if hay_red {
@@ -1300,7 +1553,7 @@ mod estado {
             } else {
                 None
             };
-            let resultado = audio::aplicar_salida(&target);
+            let resultado = audio::aplicar_salida(target);
             // Guardar el audio previo si el cambio se INTENTÓ: Ok(true) = cambió;
             // Err = pudo cambiar PARCIALMENTE (un rol OK, otro falló) antes de
             // devolver error. En ambos casos el revert debe poder deshacerlo. En
@@ -1482,6 +1735,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("audio:asignado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -1494,6 +1748,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("audio:limpiado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -1535,6 +1790,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("acciones:asignadas");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -1547,7 +1803,39 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("acciones:limpiadas");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
+        }
+    }
+
+    /// Lo que leen las vistas de escenas, tomado de una vez.
+    struct InsumosEscenas {
+        perfiles: Vec<Profile>,
+        ajustes: monarch::AppSettings,
+        huellas: Vec<monarch::DisplayFingerprint>,
+        actual: Layout,
+        infos: Vec<monarch::DisplayInfo>,
+    }
+
+    fn buscar_escena<'a>(
+        perfiles: &'a [Profile],
+        nombre: Option<&str>,
+    ) -> Result<&'a Profile, String> {
+        let nombre = nombre.ok_or_else(|| "decime de qué escena partir".to_string())?;
+        perfiles
+            .iter()
+            .find(|p| p.name == nombre)
+            .ok_or_else(|| format!("no existe la escena \"{nombre}\""))
+    }
+
+    /// El error del manager como texto para Guido (los de escenas ya vienen en castellano).
+    fn mensaje_de(error: ManagerError) -> String {
+        match error {
+            ManagerError::Validation(texto) | ManagerError::NotFound(texto) => texto,
+            ManagerError::ConfirmationPending => {
+                "ya hay un cambio esperando que lo confirmes".to_string()
+            }
+            otro => otro.to_string(),
         }
     }
 
@@ -1566,25 +1854,11 @@ mod estado {
         audios: &BTreeMap<String, AudioTarget>,
         acciones_por_perfil: &BTreeMap<String, PerfilAcciones>,
     ) -> ProfileView {
-        let activos: Vec<_> = perfil.layout.outputs.iter().filter(|o| o.enabled).collect();
-        let summary = if activos.is_empty() {
-            "sin monitores".to_string()
-        } else {
-            let resoluciones: Vec<String> = activos
-                .iter()
-                .map(|o| format!("{}×{}", o.resolution.width, o.resolution.height))
-                .collect();
-            format!(
-                "{} {} · {}",
-                activos.len(),
-                if activos.len() == 1 { "monitor" } else { "monitores" },
-                resoluciones.join(", ")
-            )
-        };
+        let activos = perfil.layout.outputs.iter().filter(|o| o.enabled).count();
         ProfileView {
             name: perfil.name.clone(),
-            active_count: activos.len(),
-            summary,
+            active_count: activos,
+            summary: escenas::resumen(&perfil.layout),
             shortcut: atajos.get(&perfil.name).cloned(),
             audio: audios.get(&perfil.name).map(a_audio_view),
             actions: acciones_por_perfil

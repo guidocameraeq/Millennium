@@ -721,6 +721,13 @@ pub fn run() {
             app::displays_cmds::displays_clear_profile_audio,
             app::displays_cmds::displays_set_profile_actions,
             app::displays_cmds::displays_clear_profile_actions,
+            app::displays_cmds::displays_list_scenes,
+            app::displays_cmds::displays_scene_draft,
+            app::displays_cmds::displays_save_scene,
+            app::displays_cmds::displays_duplicate_scene,
+            app::displays_cmds::displays_rename_scene,
+            app::displays_cmds::displays_reorder_scenes,
+            app::displays_cmds::displays_test_draft,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
