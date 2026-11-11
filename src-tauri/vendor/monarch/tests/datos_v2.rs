@@ -448,7 +448,7 @@ fn hdr_se_lee_y_se_escribe_con_el_tag_del_contrato() {
 #[test]
 fn un_hdr_con_la_pantalla_rara_no_rompe_la_lectura_del_archivo() {
     // La pantalla viaja como texto: un id tocado a mano se lee igual y lo rechaza quien lo corre,
-    // nunca la lectura de displays.json entera.
+    // en vez de tirar abajo la lectura de displays.json entera.
     let acciones: PerfilAcciones = serde_json::from_str(
         r#"{"entrada_v2":[{"tipo":"hdr","pantalla":"basura","prender":false}]}"#,
     )

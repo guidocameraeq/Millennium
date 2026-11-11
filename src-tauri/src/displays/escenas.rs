@@ -339,7 +339,7 @@ mod windows_impl {
                 }))
             }
             // El id se guarda como lo arma `format_display_id` (sin espacios); mal formado es
-            // error, nunca se adivina la pantalla.
+            // el error de `parse_display_id` (prueba `hdr_con_un_id_mal_formado_da_el_error...`).
             ActionV2Dto::Hdr { pantalla, prender } => Ok(Some(ActionV2::Hdr {
                 pantalla: format_display_id(&parse_display_id(pantalla.trim())?),
                 prender: *prender,

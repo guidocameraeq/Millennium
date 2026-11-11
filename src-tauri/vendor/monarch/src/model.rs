@@ -185,7 +185,8 @@ pub enum ActionV2 {
     },
     /// Prender o apagar el HDR de una pantalla (encargo 07, la "03b" del spec). `pantalla` es
     /// el id de monitor como texto (`"luid:target:edid"`, el de `format_display_id`): un id
-    /// raro tocado a mano lo rechaza quien corre la acción, nunca la lectura del archivo.
+    /// raro tocado a mano se lee igual (lo rechaza quien corre la acción), así no vuelve corrupto
+    /// el archivo (prueba `un_hdr_con_la_pantalla_rara_no_rompe_la_lectura_del_archivo`).
     Hdr {
         pantalla: String,
         prender: bool,
