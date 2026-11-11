@@ -12,6 +12,7 @@
     baseline: '',         // JSON del borrador al abrir, para "cambios sin guardar"
     originalName: null,   // null = escena nueva
     confirmCancel: false,
+    copyNote: [],         // por qué pantallas de una copia pasaron a "Dejar la que tenga" (ver releaseUnknownModes)
     error: '',            // error del backend al probar/guardar, tal cual
     busy: false,
     editAct: null,        // { list: 'entradaV2'|'salidaV2', i } con el formulario abierto
@@ -193,6 +194,28 @@
     }
   }
 
+  // Una copia es una escena nueva: al GUARDAR el backend no tiene "la escena de antes" contra la que
+  // comparar, y rechaza una resolución que la pantalla nunca reportó (la que nunca vio prendida).
+  // Esas pantallas pasan a "Dejar la que tenga" y el editor lo dice; el resto de la copia queda igual.
+  function releaseUnknownModes(d) {
+    const dejadas = [];
+    d.outputs.forEach((o) => {
+      if (!o.enabled || !(o.width > 0 && o.height > 0)) return;
+      const entry = modesFor(o.displayId);
+      const known = !!entry && entry.modes.some((m) => m.width === o.width && m.height === o.height
+        && Math.abs(m.refreshMhz - o.refreshMhz) < 1000);
+      if (known) return;
+      const antes = modeLabel(o);
+      o.width = 0;
+      o.height = 0;
+      // Dos casos, como el backend: nunca la vi prendida / la vi pero no reportó ese modo.
+      dejadas.push(entry && entry.modes.length
+        ? `${o.name} no reporta ${antes}`
+        : `${o.name} todavía no la vi prendida y no sé qué resoluciones acepta`);
+    });
+    return dejadas;
+  }
+
   async function openSceneEditor({ from, name }) {
     if (state.displaysBusy) return;
     state.displaysBusy = true;
@@ -213,6 +236,7 @@
         invoke('displays_get_settings').then((s) => { sceneEd.shortcutsOn = !!(s && s.globalShortcutsEnabled); }).catch(() => {}),
       ]);
       sceneEd.draft = draft;
+      sceneEd.copyNote = from === 'copy' ? releaseUnknownModes(draft) : [];
       sceneEd.originalName = from === 'scene' ? name : null;
       sceneEd.baseline = JSON.stringify(cleanDraft());
       sceneEd.confirmCancel = false;
@@ -277,6 +301,9 @@
     back.addEventListener('click', () => requestCancel());
     root.appendChild(mkEl('div', 'scene-back-row')).appendChild(back);
     root.appendChild(mkEl('div', 'scene-banner', 'Estás editando en borrador: nada cambia en tus pantallas hasta que toques PROBAR.'));
+    if (sceneEd.copyNote.length) {
+      root.appendChild(mkEl('p', 'scene-note', `En esta copia quedan en "Dejar la que tenga": ${sceneEd.copyNote.join('; ')}. Prendela una vez y vas a poder elegirla.`));
+    }
     root.appendChild(buildNameSection(d));
     root.appendChild(buildScreensSection(d));
     root.appendChild(buildSoundSection(d));
@@ -316,7 +343,14 @@
   }
 
   // 2 · Pantallas
-  function modesFor(displayId) { return sceneEd.modes.find((m) => m.displayId === displayId) || null; }
+  // La misma pantalla que para el backend (escenas.rs mismo_monitor): id igual, o mismo EDID conocido
+  // (el LUID del adaptador cambia entre arranques; el id guardado en la escena puede traer el viejo).
+  function sameMonitor(a, b) {
+    if (a === b) return true;
+    const ea = String(a).split(':')[2];
+    return !!ea && ea !== 'none' && ea === String(b).split(':')[2];
+  }
+  function modesFor(displayId) { return sceneEd.modes.find((m) => sameMonitor(m.displayId, displayId)) || null; }
   const modeValue = (m) => `${m.width}x${m.height}@${m.refreshMhz}`;
   const modeLabel = (m) => `${m.width}×${m.height} · ${Math.round((m.refreshMhz / 1000) * 100) / 100} Hz`;
 
@@ -386,6 +420,7 @@
     const sel = mkSelect(opts, cur);
     sel.disabled = !o.enabled || o.connected === false;
     sel.addEventListener('change', () => {
+      sceneEd.copyNote = [];
       if (sel.value === 'dejar') { o.width = 0; o.height = 0; }
       else {
         const m = /^(\d+)x(\d+)@(\d+)$/.exec(sel.value);
@@ -404,6 +439,7 @@
       const live = await invoke('displays_scene_draft', { from: 'current' });
       if (live && Array.isArray(live.outputs)) {
         sceneEd.draft.outputs = live.outputs;
+        sceneEd.copyNote = [];
         fixPrimary(sceneEd.draft);
         renderSceneEditor();
         markDirty();
@@ -424,17 +460,29 @@
     const cw = cv.getBoundingClientRect().width || 700;
     const ch = cv.getBoundingClientRect().height || 260;
     const pad = 16;
-    const minX = Math.min(...d.outputs.map((o) => o.x));
-    const minY = Math.min(...d.outputs.map((o) => o.y));
-    const maxX = Math.max(...d.outputs.map((o) => o.x + size(o).w));
-    const maxY = Math.max(...d.outputs.map((o) => o.y + size(o).h));
+    // Dónde se DIBUJA cada pantalla. Las prendidas, donde están guardadas. Las apagadas guardan
+    // una posición vieja (a menudo la misma para varias) y se apilarían: se estacionan en fila al
+    // costado de las prendidas, solo en el dibujo; su posición guardada no se toca.
+    const on = d.outputs.filter((o) => o.enabled);
+    const baseY = on.length ? Math.min(...on.map((o) => o.y)) : 0;
+    const gap = SCENE_DEFAULT_W / 8;
+    let cursor = on.length ? Math.max(...on.map((o) => o.x + size(o).w)) + gap : 0;
+    const at = new Map();
+    d.outputs.forEach((o) => {
+      if (o.enabled) at.set(o, { x: o.x, y: o.y });
+      else { at.set(o, { x: cursor, y: baseY }); cursor += size(o).w + gap; }
+    });
+    const minX = Math.min(...d.outputs.map((o) => at.get(o).x));
+    const minY = Math.min(...d.outputs.map((o) => at.get(o).y));
+    const maxX = Math.max(...d.outputs.map((o) => at.get(o).x + size(o).w));
+    const maxY = Math.max(...d.outputs.map((o) => at.get(o).y + size(o).h));
     // Margen de una pantalla extra a cada lado para poder moverlas.
     const bx = Math.max(maxX - minX, 1);
     const by = Math.max(maxY - minY, 1);
     const scale = Math.min((cw - pad * 2) / (bx * 1.6), (ch - pad * 2) / (by * 1.6), 0.25);
     const ox = (cw - bx * scale) / 2;
     const oy = (ch - by * scale) / 2;
-    const toScreen = (o) => ({ l: ox + (o.x - minX) * scale, t: oy + (o.y - minY) * scale, w: size(o).w * scale, h: size(o).h * scale });
+    const toScreen = (o) => ({ l: ox + (at.get(o).x - minX) * scale, t: oy + (at.get(o).y - minY) * scale, w: size(o).w * scale, h: size(o).h * scale });
     const overlaps = (o, x, y) => d.outputs.some((p) => {
       if (p === o || !p.enabled || !o.enabled) return false;
       const a = size(o); const b = size(p);
@@ -446,7 +494,9 @@
       div.style.left = `${r.l}px`; div.style.top = `${r.t}px`;
       div.style.width = `${r.w}px`; div.style.height = `${r.h}px`;
       div.appendChild(mkEl('span', '', `${o.enabled && o.primary ? '★ ' : ''}${o.name}`));
-      div.appendChild(mkEl('span', 'mono scene-hint', o.width ? `${o.width}×${o.height}` : 'la que tenga'));
+      div.appendChild(mkEl('span', 'mono scene-hint', o.enabled ? (o.width ? `${o.width}×${o.height}` : 'la que tenga') : 'apagada'));
+      // Una apagada no se mueve: su lugar en el escritorio no cuenta hasta que se prenda.
+      if (!o.enabled) { div.style.cursor = 'default'; cv.appendChild(div); return; }
       div.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         div.setPointerCapture(e.pointerId);
@@ -459,7 +509,7 @@
           // Se pega a los bordes de las otras pantallas (a ~10 px de pantalla).
           const T = 10 / scale;
           d.outputs.forEach((p) => {
-            if (p === o) return;
+            if (p === o || !p.enabled) return;
             const a = size(o); const b = size(p);
             [p.x + b.w, p.x - a.w, p.x].forEach((t) => { if (Math.abs(t - nx) < T) nx = t; });
             [p.y + b.h, p.y - a.h, p.y].forEach((t) => { if (Math.abs(t - ny) < T) ny = t; });

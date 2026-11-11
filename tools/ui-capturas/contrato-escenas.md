@@ -112,7 +112,7 @@ Mismos campos que `SceneView` menos `summary` e `isCurrent`. Vive solo en la pan
   - `scene`: la escena `name` entera, para EDITAR (atajo y arranque incluidos). La pantalla guarda `name` como `originalName`.
   - `copy`: la escena `name` con las reglas de duplicar (SPEC :41): pantallas, sonido, acciones y emoji; **sin** atajo ni arranque; nombre `X (copia)` o `X (copia N)` libre. Es "Copia de otra escena…" de ＋ NUEVA ESCENA: no guarda nada.
   - En `scene`/`copy`, las pantallas que la escena guarda y hoy no están salen con `connected: false`; las que Windows ve y la escena no nombra **se agregan** apagadas, con "Dejar la que tenga" (así el editor muestra todas).
-- Errores: `from` desconocido → `no sé de dónde armar la escena`; escena que no existe → `no existe la escena "<name>"`; `current` sin poder leer Windows → el error del backend.
+- Errores: `from` desconocido → `no sé de dónde armar la escena`; `scene`/`copy` sin `name` → `decime de qué escena partir`; escena que no existe → `no existe la escena "<name>"`; `current` sin poder leer Windows → el error del backend.
 - No lo frena una prueba pendiente (no escribe nada).
 
 ### `displays_save_scene` — GUARDAR un borrador (crear o editar) · encargo 01
@@ -129,7 +129,9 @@ Mismos campos que `SceneView` menos `summary` e `isCurrent`. Vive solo en la pan
   - `la pantalla principal tiene que estar prendida`
   - `ese atajo ya lo usa la escena "<otra>"`
   - los de validación de `ActionV2` y de `SceneOutput`
-  - `esperando que confirmes la prueba` / el de cambio pendiente
+  - (02) las resoluciones: cada pantalla **prendida** con una resolución elegida tiene que llevar un modo de los que esa pantalla reportó (`displays_list_display_modes`), o ser la que **esa misma escena ya tenía guardada** para esa pantalla (por eso editar una escena de antes no falla), o "Dejar la que tenga" (0×0). Si no: `todavía no sé qué resoluciones acepta <name>: prendela una vez o elegí "Dejar la que tenga"` (la pantalla nunca se vio prendida) / `<name> no reporta <ancho>×<alto> a <N> Hz: elegí una de su lista o "Dejar la que tenga"`. Las apagadas no se miran. Ojo con las **escenas nuevas** (`originalName: null`, también las que salen de "Copia de otra escena…"): no tienen "escena original" contra la que comparar, así que una resolución heredada de otra escena para una pantalla que nunca se vio prendida da el primer error. Por eso la pantalla, en un borrador de copia, pasa esas pantallas a "Dejar la que tenga" antes de ofrecerlo (ver la pantalla, `displays-editor.js`).
+  - (02) `la resolución de <name> no es válida` (ancho 0 con alto distinto de 0, o al revés) y `elegí una frecuencia para <name>` (resolución elegida con frecuencia 0)
+  - `esperando que confirmes la prueba` / el de cambio pendiente (`ya hay un cambio esperando que lo confirmes`)
 - Si el atajo se guardó pero Windows no lo deja registrar: **se guarda igual sin atajo** y va un `warnings` (no se deja un atajo muerto, como hoy en `displays_set_profile_shortcut`).
 
 ### `displays_duplicate_scene` — DUPLICAR del menú ⋯ · encargo 01
@@ -182,15 +184,15 @@ Mismos campos que `SceneView` menos `summary` e `isCurrent`. Vive solo en la pan
 
 ### `displays_list_running_programs` — elegir qué cerrar · encargo 03
 - Argumentos: ninguno.
-- Respuesta: `[ { "exe": "steam.exe", "title": "Steam" } ]`: procesos con al menos una ventana visible, un renglón por `exe` (en minúsculas), ordenado por `title`, **sin** los de la lista prohibida. `title` = título de una de sus ventanas (o el exe si no hay).
+- Respuesta: `[ { "exe": "steam.exe", "title": "Steam" } ]`: procesos con al menos una ventana visible **y con título** (decisión del director en la evidencia 03: queda así; un proceso sin ventana con título no aparece), un renglón por `exe` (en minúsculas), ordenado por `title`, **sin** los de la lista prohibida. `title` siempre trae texto: es el título de una de sus ventanas (no se rellena con el exe).
 
 ## Cambios a comandos de hoy (solo campos opcionales)
 
 | Comando / tipo | Qué se suma | Quién | Por qué |
 |---|---|---|---|
 | `displays_save_profile` | argumento opcional `replace?: boolean` (falta = `false`) | 01 | SPEC :56: deja de pisar en silencio. Sin `replace`, un nombre repetido da `ya hay una escena que se llama "<name>"`. "↻ actualizar con lo puesto" manda `replace: true` y pisa **solo el layout**, como hoy. Ojo 01→06: el ↻ de la pantalla vieja manda solo `{ name }`, así que en la rama del módulo da ese error hasta que el 06 lo cablee (no llega a `main` así). |
-| `PendingView` (en `DisplaysSnapshot.pending`) | `isTest?: boolean` (falta = `false`) | 01 | La pantalla sabe si la cuenta regresiva es de PROBAR para bloquear GUARDAR/RENOMBRAR/BORRAR/DUPLICAR/↻ con el texto "esperando que confirmes la prueba". |
-| evento `displays-confirmation` `applied` | `isTest?: boolean` | 01 | Lo mismo, por el evento. |
+| `PendingView` (en `DisplaysSnapshot.pending`) | `isTest: boolean` (el backend lo manda siempre; la pantalla trata "falta" como `false`) | 01 | La pantalla sabe si la cuenta regresiva es de PROBAR para bloquear GUARDAR/RENOMBRAR/BORRAR/DUPLICAR/↻ con el texto "esperando que confirmes la prueba". |
+| evento `displays-confirmation` `applied` | `isTest?: boolean` (solo viaja cuando es `true`) y `warnings?: string[]` (solo viaja si hay algo que avisar) | 01 y 02 | `isTest`: lo mismo, por el evento. `warnings` (02): Windows dejó otra resolución o frecuencia de la elegida en la escena, en castellano y listo para mostrar (ej. `pediste 3840×2160 a 60 Hz para LG TV OLED, pero Windows la dejó en 1920×1080 a 60 Hz`; uno por pantalla). Lo llevan APLICAR (`displays_load_profile`), la cuenta regresiva de la bandeja y PROBAR. Los atajos y el arranque no abren cartel: ahí el aviso va solo al log. La pantalla lo muestra junto al cartel de confirmación, en texto visible, hasta que se confirma o se revierte. |
 | `displays_delete_profile` | nada en la forma; además emite `displays-scenes-changed` y rearma la bandeja | 01 | Borrar se sigue haciendo con el comando de hoy, también desde la pantalla nueva; el emoji se limpia con el resto (`mod.rs` `borrar_perfil`). |
 | `displays_confirm` | nada en la forma; avisa `confirmed` **antes** de correr las acciones | 03 | SPEC :60. |
 

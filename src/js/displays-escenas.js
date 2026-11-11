@@ -290,12 +290,27 @@
     renderScenes();
   }
 
+  // Aviso fijo arriba de la lista: lo que se guardó o aplicó pero Guido tiene que saber (el atajo no
+  // se pudo activar, Windows dejó otra resolución). Queda hasta que lo cierra o hasta la próxima
+  // acción; la línea de estado solo dura unos segundos.
+  function setSceneNotice(lines) {
+    if (!scenesNotice) return;
+    const avisos = (Array.isArray(lines) ? lines : []).filter((w) => typeof w === 'string' && w.trim());
+    scenesNotice.hidden = !avisos.length;
+    if (!avisos.length) { scenesNotice.replaceChildren(); return; }
+    const close = mkBtn('modal-btn small scenes-notice-close', '✕', 'Cerrar el aviso');
+    close.addEventListener('click', () => setSceneNotice([]));
+    scenesNotice.replaceChildren(
+      close,
+      ...avisos.map((w) => mkEl('p', 'mono scenes-notice-line', `⚠ ${w}`)));
+  }
+
   // Un comando que escribe escenas devuelve ScenesResult: la lista queda al día.
   function takeScenesResult(res) {
     if (res && Array.isArray(res.scenes)) scenesData = res.scenes;
-    if (res && Array.isArray(res.warnings)) {
-      res.warnings.forEach((w) => setStatus(`DISPLAYS · ${w}`, { priority: 'warn', ttl: 9000 }));
-    }
+    const avisos = res && Array.isArray(res.warnings) ? res.warnings : [];
+    avisos.forEach((w) => setStatus(`DISPLAYS · ${w}`, { priority: 'warn', ttl: 9000 }));
+    setSceneNotice(avisos);
     return res;
   }
 
@@ -324,6 +339,7 @@
     if (state.displaysBusy || state.displaysPending) return;
     state.displaysBusy = true;
     if (displaysError) displaysError.hidden = true;
+    setSceneNotice([]);
     renderScenes();
     blip(660, 0.06);
     setStatus(`DISPLAYS · aplicando "${name}"…`, { force: true });
@@ -480,8 +496,17 @@
       await listen('displays-scenes-changed', () => { if (state.section === 'displays') loadScenes(); });
       await listen('displays-confirmation', (event) => {
         const p = event.payload || {};
-        if (p.kind === 'applied') displaysPendingIsTest = !!p.isTest;
-        else if (p.kind === 'confirmed' || p.kind === 'reverted') displaysPendingIsTest = false;
+        if (p.kind === 'applied') {
+          displaysPendingIsTest = !!p.isTest;
+          // "Windows dejó otra resolución": en el cartel mientras dura y en la lista después.
+          displaysPendingWarnings = Array.isArray(p.warnings) ? p.warnings.filter((w) => typeof w === 'string' && w.trim()) : [];
+          setSceneNotice(displaysPendingWarnings);
+        } else if (p.kind === 'confirmed' || p.kind === 'reverted') {
+          displaysPendingIsTest = false;
+          displaysPendingWarnings = [];
+          // Revertido: la resolución que avisaba ya no quedó puesta. Confirmado: el aviso sigue en la lista.
+          if (p.kind === 'reverted') setSceneNotice([]);
+        }
         displaysLastShownSec = -1; // que el reloj se reescriba con el texto de PRUEBA
         refreshDisplaysUi();
       });
