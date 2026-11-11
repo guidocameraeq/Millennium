@@ -232,17 +232,20 @@ pub(crate) async fn displays_list_profiles(
 pub(crate) async fn displays_save_profile(
     app: tauri::AppHandle,
     name: String,
+    replace: Option<bool>,
 ) -> Result<Vec<displays::ProfileView>, String> {
     #[cfg(target_os = "windows")]
     {
         let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
-        return tokio::task::spawn_blocking(move || estado.guardar_perfil(&name))
+        // Sin `replace` un nombre repetido es error; el "↻ actualizar" manda `replace: true`.
+        let reemplazar = replace.unwrap_or(false);
+        return tokio::task::spawn_blocking(move || estado.guardar_perfil(&name, reemplazar))
             .await
             .map_err(|e| format!("displays: la tarea de guardar perfil se cayó: {e}"))?;
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (&app, &name);
+        let _ = (&app, &name, &replace);
         Err(displays_no_disponible())
     }
 }
@@ -555,6 +558,179 @@ pub(crate) async fn displays_clear_profile_actions(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (&app, &name);
+        Err(displays_no_disponible())
+    }
+}
+
+// --- Escenas en papel (módulo escenas, encargo 01) -----------------------------------
+// Forma y nombres: tools/ui-capturas/contrato-escenas.md. Todos se declaran siempre (también
+// en Android) y fuera de Windows responden el error de hoy.
+
+/// La lista de la pestaña ESCENAS, en el orden de Guido.
+#[tauri::command]
+pub(crate) async fn displays_list_scenes(
+    app: tauri::AppHandle,
+) -> Result<Vec<displays::SceneView>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        return tokio::task::spawn_blocking(move || estado.listar_escenas())
+            .await
+            .map_err(|e| format!("displays: la tarea de escenas se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app);
+        Err(displays_no_disponible())
+    }
+}
+
+/// Arma un borrador (`current`, `blank`, `scene` o `copy`) sin tocar nada.
+#[tauri::command]
+pub(crate) async fn displays_scene_draft(
+    app: tauri::AppHandle,
+    from: String,
+    name: Option<String>,
+) -> Result<displays::SceneDraft, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        return tokio::task::spawn_blocking(move || estado.borrador_de_escena(&from, name.as_deref()))
+            .await
+            .map_err(|e| format!("displays: la tarea de escenas se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app, &from, &name);
+        Err(displays_no_disponible())
+    }
+}
+
+/// GUARDAR un borrador (crear o editar), en un solo guardado y sin tocar ninguna pantalla.
+///
+/// Después re-registra los atajos. Si el atajo se guardó pero Windows no deja registrarlo, la
+/// escena queda guardada SIN atajo y va un aviso (no se deja un atajo muerto).
+#[tauri::command]
+pub(crate) async fn displays_save_scene(
+    app: tauri::AppHandle,
+    draft: displays::SceneDraft,
+    original_name: Option<String>,
+) -> Result<displays::ScenesResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        let app2 = app.clone();
+        return tokio::task::spawn_blocking(move || {
+            let atajo = draft.shortcut.as_deref().map(str::trim).map(str::to_string);
+            let mut resultado = estado.guardar_escena(draft, original_name)?;
+            let fallidos = resync_profile_shortcuts(&app2);
+            if let (Some(accel), Some(nombre)) = (atajo.filter(|a| !a.is_empty()), resultado.name.clone()) {
+                if fallidos.iter().any(|f| f == &accel) {
+                    // Deshacer solo el atajo: lo demás ya quedó guardado.
+                    let _ = estado.limpiar_atajo(&nombre);
+                    resync_profile_shortcuts(&app2);
+                    resultado.scenes = estado.listar_escenas()?;
+                    resultado.warnings.push(format!(
+                        "se guardó, pero el atajo {accel} no se pudo activar (¿lo usa otro programa?)"
+                    ));
+                }
+            }
+            Ok(resultado)
+        })
+        .await
+        .map_err(|e| format!("displays: la tarea de guardar escena se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app, &draft, &original_name);
+        Err(displays_no_disponible())
+    }
+}
+
+/// DUPLICAR: copia sin atajo ni arranque, al final de la lista.
+#[tauri::command]
+pub(crate) async fn displays_duplicate_scene(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<displays::ScenesResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        return tokio::task::spawn_blocking(move || estado.duplicar_escena(&name))
+            .await
+            .map_err(|e| format!("displays: la tarea de duplicar se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app, &name);
+        Err(displays_no_disponible())
+    }
+}
+
+/// RENOMBRAR: mueve atajo, sonido, acciones, emoji y arranque en un solo guardado.
+#[tauri::command]
+pub(crate) async fn displays_rename_scene(
+    app: tauri::AppHandle,
+    name: String,
+    new_name: String,
+) -> Result<displays::ScenesResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        let app2 = app.clone();
+        return tokio::task::spawn_blocking(move || {
+            let resultado = estado.renombrar_escena(&name, &new_name)?;
+            // El atajo cambió de nombre: re-registrar.
+            resync_profile_shortcuts(&app2);
+            Ok(resultado)
+        })
+        .await
+        .map_err(|e| format!("displays: la tarea de renombrar se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app, &name, &new_name);
+        Err(displays_no_disponible())
+    }
+}
+
+/// ↑/↓ y arrastrar: `names` tiene que ser exactamente el conjunto de escenas de hoy.
+#[tauri::command]
+pub(crate) async fn displays_reorder_scenes(
+    app: tauri::AppHandle,
+    names: Vec<String>,
+) -> Result<displays::ScenesResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        return tokio::task::spawn_blocking(move || estado.reordenar_escenas(names))
+            .await
+            .map_err(|e| format!("displays: la tarea de ordenar se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app, &names);
+        Err(displays_no_disponible())
+    }
+}
+
+/// PROBAR un borrador: pantallas y sonido con la cuenta regresiva de siempre, sin guardar la
+/// escena ni correr acciones.
+#[tauri::command]
+pub(crate) async fn displays_test_draft(
+    app: tauri::AppHandle,
+    draft: displays::SceneDraft,
+) -> Result<displays::DisplaysSnapshot, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        return tokio::task::spawn_blocking(move || estado.probar_borrador(draft))
+            .await
+            .map_err(|e| format!("displays: la tarea de probar se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app, &draft);
         Err(displays_no_disponible())
     }
 }

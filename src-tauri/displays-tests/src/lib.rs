@@ -64,6 +64,13 @@ mod log_format_tests;
 #[cfg(test)]
 mod displays_view_tests;
 
+// El checkpoint crudo de displays.json (encargo 01 de escenas, criterio 8).
+#[cfg(test)]
+mod store_tests;
+
+#[cfg(test)]
+mod escenas_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -74,6 +81,10 @@ pub mod displays {
 
     #[path = "../../../src/displays/ids.rs"]
     pub mod ids;
+
+    // Las conversiones de escenas (encargo 01): puras, sin `windows` ni `tauri`.
+    #[path = "../../../src/displays/escenas.rs"]
+    pub mod escenas;
 
     #[path = "../../../src/displays/store.rs"]
     pub mod store;
