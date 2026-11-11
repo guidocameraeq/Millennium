@@ -756,3 +756,52 @@ pub(crate) async fn displays_list_display_modes(
         Err(displays_no_disponible())
     }
 }
+
+// --- Listas para elegir (módulo escenas, encargo 03) ---------------------------------
+// Forma y nombres: tools/ui-capturas/contrato-escenas.md. Sin Steam o sin Chrome devuelven
+// vacío, nunca error; el único error es "no disponible" (fuera de Windows).
+
+/// Los juegos de Steam instalados, por nombre.
+#[tauri::command]
+pub(crate) async fn displays_list_steam_games() -> Result<Vec<displays::SteamGame>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return tokio::task::spawn_blocking(displays::listar_juegos_de_steam)
+            .await
+            .map_err(|e| format!("displays: la lista de juegos se cayó: {e}"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(displays_no_disponible())
+    }
+}
+
+/// Las cuentas de Chrome y la ruta de `chrome.exe`.
+#[tauri::command]
+pub(crate) async fn displays_list_chrome_profiles() -> Result<displays::ChromeProfiles, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return tokio::task::spawn_blocking(displays::listar_cuentas_de_chrome)
+            .await
+            .map_err(|e| format!("displays: la lista de cuentas de Chrome se cayó: {e}"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(displays_no_disponible())
+    }
+}
+
+/// Los programas abiertos con ventana, para elegir cuál cerrar.
+#[tauri::command]
+pub(crate) async fn displays_list_running_programs() -> Result<Vec<displays::RunningProgram>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return tokio::task::spawn_blocking(displays::listar_programas_abiertos)
+            .await
+            .map_err(|e| format!("displays: la lista de programas se cayó: {e}"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(displays_no_disponible())
+    }
+}

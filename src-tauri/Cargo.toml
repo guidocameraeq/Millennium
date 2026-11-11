@@ -138,6 +138,9 @@ windows = { version = "0.60", features = [
   # Win32 (va por std::process::Command + tauri-plugin-opener), así que no suma
   # más features de Shell (Win32_UI_Shell ya estaba declarada de antes).
   "Win32_Media_Audio_Endpoints",
+  # Escenas, acción "Cerrar un programa" (encargo 03): foto de los procesos (nombre de .exe → PID)
+  # para saber qué cerrar y si sigue vivo. Las ventanas y WM_CLOSE ya salen de WindowsAndMessaging.
+  "Win32_System_Diagnostics_ToolHelp",
 ] }
 
 # Mobile-only plugins (Android / iOS)
