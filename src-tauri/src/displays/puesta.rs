@@ -110,13 +110,16 @@ pub fn escena_puesta(escenas: &[Profile], actual: &Layout, activa: Option<&str>)
 pub const PREFIJO_MENU: &str = "tray_escena:";
 
 /// El id de un ítem del menú: su lugar en la lista y el nombre (`tray_escena:<lugar>:<nombre>`).
-pub fn id_de_menu(_lugar: usize, _nombre: &str) -> String {
-    String::new()
+pub fn id_de_menu(lugar: usize, nombre: &str) -> String {
+    format!("{PREFIJO_MENU}{lugar}:{nombre}")
 }
 
 /// De un clic en el menú a la escena a aplicar: `None` si el id no es de una escena o si esa
 /// escena ya no existe en `nombres` (la lista de hoy). Manda el nombre; el lugar es el que
 /// tenía en el menú, que pudo haberse corrido si se reordenó.
-pub fn escena_del_menu(_id: &str, _nombres: &[String]) -> Option<String> {
-    None
+pub fn escena_del_menu(id: &str, nombres: &[String]) -> Option<String> {
+    let resto = id.strip_prefix(PREFIJO_MENU)?;
+    let (lugar, nombre) = resto.split_once(':')?;
+    lugar.parse::<usize>().ok()?;
+    nombres.iter().find(|n| n.as_str() == nombre).cloned()
 }
