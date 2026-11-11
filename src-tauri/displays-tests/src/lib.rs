@@ -90,6 +90,10 @@ mod listas_tests;
 #[cfg(test)]
 mod puesta_tests;
 
+// La acción HDR (encargo 07 de escenas): qué pantalla, si soporta, pedir y re-leer.
+#[cfg(test)]
+mod hdr_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -107,6 +111,10 @@ pub mod displays {
 
     #[path = "../../../src/displays/escenas.rs"]
     pub mod escenas;
+
+    // La lógica de la acción HDR (encargo 07): pura; las llamadas de Windows viven en acciones.rs.
+    #[path = "../../../src/displays/hdr.rs"]
+    pub mod hdr;
 
     // Las reglas puras de los modos de pantalla (encargo 02): sin `windows` ni `tauri`.
     // Las listas de Steam, Chrome y programas abiertos (encargo 03): puras, leen texto o carpetas.

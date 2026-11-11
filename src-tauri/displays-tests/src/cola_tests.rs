@@ -47,6 +47,9 @@ impl Ejecutor for EjecutorFalso {
             m.reloj += self.cuesta_cerrar;
         }
     }
+    fn hdr(&mut self, pantalla: &str, prender: bool) {
+        anotar(&self.mundo, format!("hdr {pantalla} {prender}"));
+    }
 }
 
 /// El reloj falso para `correr_lista`: dormir no duerme, suma.
@@ -257,4 +260,48 @@ fn una_lista_vacia_no_cancela_nada() {
     assert_eq!(eventos(&mundo), ["empieza a dormir 30"], "sigue esperando");
     liberar.store(true, Ordering::SeqCst);
     assert_eq!(esperar_a(&mundo, 3).len(), 3);
+}
+
+// ── Encargo 07: HDR corre en la cola, en su lugar de la fila ────────────────────────
+
+#[test]
+fn hdr_corre_en_orden_y_lo_que_sigue_tambien() {
+    let (eventos, salteados) = correr(
+        &[
+            ActionV2::Esperar { segundos: 2 },
+            ActionV2::Hdr {
+                pantalla: "1:2:202".to_string(),
+                prender: true,
+            },
+            lanzar("pelicula"),
+            ActionV2::Hdr {
+                pantalla: "1:2:202".to_string(),
+                prender: false,
+            },
+        ],
+        false,
+        0,
+    );
+    assert_eq!(
+        eventos,
+        ["dormir 2", "hdr 1:2:202 true", "lanzar pelicula", "hdr 1:2:202 false"]
+    );
+    assert_eq!(salteados, 0);
+}
+
+#[test]
+fn una_escena_nueva_no_cancela_un_hdr_pendiente() {
+    // Cancelar corta solo los Esperar: el HDR que pidió la escena anterior se corre igual.
+    let (eventos, _) = correr(
+        &[
+            ActionV2::Esperar { segundos: 30 },
+            ActionV2::Hdr {
+                pantalla: "1:2:202".to_string(),
+                prender: false,
+            },
+        ],
+        true,
+        0,
+    );
+    assert_eq!(eventos, ["hdr 1:2:202 false"]);
 }
