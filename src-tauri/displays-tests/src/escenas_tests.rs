@@ -127,14 +127,7 @@ fn los_errores_del_borrador_son_para_guido() {
         con(&|v| v["entradaV2"][0]["destino"] = "   ".into()),
         "falta qué abrir"
     );
-    assert_eq!(
-        con(&|v| v["entradaV2"] = serde_json::json!([{"tipo": "cerrar", "exe": "steam.exe"}])),
-        "esta versión todavía no sabe guardar acciones cerrar"
-    );
-    assert_eq!(
-        con(&|v| v["salidaV2"] = serde_json::json!([{"tipo": "esperar", "segundos": 5}])),
-        "esta versión todavía no sabe guardar acciones esperar"
-    );
+    // Cerrar y Esperar ya se guardan (encargo 03): su validación está en `acciones_tests`.
     assert_eq!(
         con(&|v| v["salidaV2"] =
             serde_json::json!([{"tipo": "hdr", "pantalla": texto_id(1), "prender": true}])),

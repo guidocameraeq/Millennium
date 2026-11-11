@@ -47,6 +47,9 @@ mod apply;
 mod audio;
 #[cfg(target_os = "windows")]
 mod backend;
+// La cola de acciones de las escenas (encargo 03): pura, pero nombra a `monarch` (solo Windows).
+#[cfg(target_os = "windows")]
+mod cola;
 #[cfg(target_os = "windows")]
 mod enumerate;
 #[cfg(target_os = "windows")]
@@ -61,6 +64,8 @@ mod topology;
 // Sin `cfg(windows)` a propósito: es lo que `displays-tests` puede correr. Los tipos de
 // las escenas se nombran en cualquier plataforma; sus conversiones son solo Windows.
 mod escenas;
+// Ídem: elegir un juego de Steam, una cuenta de Chrome o un programa abierto (encargo 03).
+mod listas;
 // Ídem: los tipos del selector de resolución y sus reglas puras (encargo 02 de escenas).
 mod modos;
 mod view;
@@ -70,7 +75,40 @@ mod watchdog;
 mod win32_types;
 
 pub use escenas::{SceneDraft, SceneView, ScenesResult};
+pub use listas::{ChromeProfiles, RunningProgram, SteamGame};
 pub use modos::DisplayModesView;
+
+/// Los juegos de Steam instalados para el selector de acciones. Sin Steam, lista vacía.
+/// Lee archivos: llamarla desde `spawn_blocking`.
+#[cfg(target_os = "windows")]
+pub fn listar_juegos_de_steam() -> Vec<SteamGame> {
+    acciones::carpeta_de_steam()
+        .map(|carpeta| listas::juegos_de_steam(&carpeta))
+        .unwrap_or_default()
+}
+
+/// Las cuentas de Chrome y la ruta de `chrome.exe`. Sin Chrome, `chrome_path: None` y lista vacía.
+#[cfg(target_os = "windows")]
+pub fn listar_cuentas_de_chrome() -> ChromeProfiles {
+    let chrome_path = acciones::ruta_de_chrome();
+    let profiles = match (&chrome_path, acciones::local_state_de_chrome()) {
+        (Some(_), Some(texto)) => listas::cuentas_de_chrome(&texto),
+        _ => Vec::new(),
+    };
+    ChromeProfiles {
+        chrome_path: chrome_path.map(|ruta| ruta.to_string_lossy().into_owned()),
+        profiles,
+    }
+}
+
+/// Los programas abiertos con ventana, para elegir cuál cerrar (sin la lista prohibida).
+#[cfg(target_os = "windows")]
+pub fn listar_programas_abiertos() -> Vec<RunningProgram> {
+    listas::programas_abiertos(
+        acciones::programas_con_ventana(),
+        &acciones::nombre_de_esta_app(),
+    )
+}
 pub use view::DisplayView;
 use view::mock_displays;
 // Solo los usa el camino de Windows (`views_from_topology` y `estado`).
@@ -564,6 +602,7 @@ mod estado {
     use super::backend::SystemDisplayBackend;
     use super::escenas;
     use super::ids::{format_display_id, parse_display_id};
+    use super::cola;
     use super::modos;
     use super::store::MillenniumConfigStore;
     use super::watchdog::{self, Desenlace};
@@ -615,6 +654,9 @@ mod estado {
         /// sola confirmación viva a la vez, así que este slot siempre corresponde
         /// al pending vivo (o es `None`).
         escena_pendiente: Mutex<Option<String>>,
+        /// Las acciones de las escenas corren acá, en fila y en su hilo (encargo 03): `confirm`
+        /// avisa antes de encolar y no espera a un Esperar.
+        cola: cola::Cola,
     }
 
     /// El handle que se guarda en Tauri y se clona hacia los hilos.
@@ -646,6 +688,7 @@ mod estado {
             audio_previo: Mutex::new(None),
             escena_activa: Mutex::new(None),
             escena_pendiente: Mutex::new(None),
+            cola: cola::Cola::nueva(acciones::EjecutorReal, cola::RelojReal::nuevo()),
         }));
 
         // La ventana oculta cablea DOS reacciones distintas:
@@ -864,10 +907,12 @@ mod estado {
             self.olvidar_audio_previo();
             // Recién ACÁ el cambio con red queda committeado ⇒ correr el ciclo de la
             // escena que estaba pendiente (SALIDA anterior + ENTRADA nueva).
-            self.confirmar_escena_pendiente();
+            // La escena queda activa ACÁ; sus acciones se encolan recién después del aviso.
+            let acciones = self.confirmar_escena_pendiente();
             diagnostics::log("confirm:el_usuario_confirmo");
             self.avisar_confirmacion(serde_json::json!({ "kind": "confirmed" }));
             self.avisar_cambio();
+            self.0.cola.encolar(acciones);
             self.snapshot()
         }
 
@@ -1954,31 +1999,30 @@ mod estado {
         /// tardar; regla de locks del stack). Una acción que falla se loguea y
         /// sigue; el video/audio ya aplicados nunca se revierten por esto.
         fn correr_ciclo_de_escena(&self, nombre: &str) {
+            let lista = self.preparar_ciclo_de_escena(nombre);
+            self.0.cola.encolar(lista);
+        }
+
+        /// La primera mitad del ciclo: arma la lista (SALIDA de la anterior y después ENTRADA
+        /// de `nombre`, con todos los tipos de acción) y fija `nombre` como escena activa
+        /// ANTES de que corra nada. Quien llama la encola cuando le toca.
+        fn preparar_ciclo_de_escena(&self, nombre: &str) -> Vec<monarch::ActionV2> {
             let por_perfil = {
                 let Ok(guard) = self.0.manager.lock() else {
-                    return;
+                    return Vec::new();
                 };
                 guard.settings().profile_actions.clone()
             };
             let anterior = self.0.escena_activa.lock().ok().and_then(|g| g.clone());
-            let salida_previa: Vec<Accion> = match &anterior {
+            let mut lista: Vec<monarch::ActionV2> = match &anterior {
                 Some(prev) if prev != nombre => por_perfil
                     .get(prev)
-                    .map(|a| a.salida.clone())
+                    .map(|a| a.salida_completa())
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
-            let entrada: Vec<Accion> = por_perfil
-                .get(nombre)
-                .map(|a| a.entrada.clone())
-                .unwrap_or_default();
-            // Primero la SALIDA de la escena anterior, después la ENTRADA de la
-            // nueva. Sin locks tomados.
-            if !salida_previa.is_empty() {
-                acciones::ejecutar(&salida_previa);
-            }
-            if !entrada.is_empty() {
-                acciones::ejecutar(&entrada);
+            if let Some(a) = por_perfil.get(nombre) {
+                lista.extend(a.entrada_completa());
             }
             // La nueva escena queda activa aunque no tenga acciones: así su SALIDA
             // futura (si se la agregan) tiene contra qué correr, y no se re-dispara
@@ -1986,6 +2030,7 @@ mod estado {
             if let Ok(mut slot) = self.0.escena_activa.lock() {
                 *slot = Some(nombre.to_string());
             }
+            lista
         }
 
         /// Marca que la escena `nombre` se aplicó **con red** y espera confirmación.
@@ -1998,13 +2043,14 @@ mod estado {
 
         /// En `confirm`: el cambio con red recién ahí queda committeado ⇒ correr el
         /// ciclo de la escena que estaba pendiente (si la había).
-        fn confirmar_escena_pendiente(&self) {
+        fn confirmar_escena_pendiente(&self) -> Vec<monarch::ActionV2> {
             let pendiente = match self.0.escena_pendiente.lock() {
                 Ok(mut slot) => slot.take(),
                 Err(_) => None,
             };
-            if let Some(nombre) = pendiente {
-                self.correr_ciclo_de_escena(&nombre);
+            match pendiente {
+                Some(nombre) => self.preparar_ciclo_de_escena(&nombre),
+                None => Vec::new(),
             }
         }
 

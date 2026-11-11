@@ -76,6 +76,16 @@ mod escenas_tests;
 #[cfg(test)]
 mod modos_tests;
 
+// Acciones nuevas, cola y listas de Steam/Chrome (encargo 03 de escenas).
+#[cfg(test)]
+mod acciones_tests;
+
+#[cfg(test)]
+mod cola_tests;
+
+#[cfg(test)]
+mod listas_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -88,10 +98,17 @@ pub mod displays {
     pub mod ids;
 
     // Las conversiones de escenas (encargo 01): puras, sin `windows` ni `tauri`.
+    #[path = "../../../src/displays/cola.rs"]
+    pub mod cola;
+
     #[path = "../../../src/displays/escenas.rs"]
     pub mod escenas;
 
     // Las reglas puras de los modos de pantalla (encargo 02): sin `windows` ni `tauri`.
+    // Las listas de Steam, Chrome y programas abiertos (encargo 03): puras, leen texto o carpetas.
+    #[path = "../../../src/displays/listas.rs"]
+    pub mod listas;
+
     #[path = "../../../src/displays/modos.rs"]
     pub mod modos;
 

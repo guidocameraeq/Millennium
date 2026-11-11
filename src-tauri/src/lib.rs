@@ -729,6 +729,9 @@ pub fn run() {
             app::displays_cmds::displays_reorder_scenes,
             app::displays_cmds::displays_test_draft,
             app::displays_cmds::displays_list_display_modes,
+            app::displays_cmds::displays_list_steam_games,
+            app::displays_cmds::displays_list_chrome_profiles,
+            app::displays_cmds::displays_list_running_programs,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

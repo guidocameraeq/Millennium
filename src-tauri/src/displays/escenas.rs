@@ -37,8 +37,8 @@ pub struct SceneAudio {
     pub friendly_name: String,
 }
 
-/// Una acción de las listas `entradaV2`/`salidaV2`. Espeja `monarch::ActionV2` más los tipos
-/// que implementan los encargos 03 y 03b: hasta entonces `save_scene` los rechaza.
+/// Una acción de las listas `entradaV2`/`salidaV2`. Espeja `monarch::ActionV2` más `Hdr`
+/// (encargo 03b): hasta entonces `save_scene` lo rechaza.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "tipo", rename_all = "snake_case")]
 pub enum ActionV2Dto {
@@ -114,6 +114,49 @@ pub struct ScenesResult {
 /// Nombre que lleva un borrador nuevo.
 pub const NOMBRE_ESCENA_NUEVA: &str = "Escena nueva";
 
+/// Programas que la acción Cerrar no acepta: esta app y lo que Windows necesita para andar.
+/// Se rechazan al guardar (`exe_a_cerrar`); como un `displays.json` tocado a mano o escrito por
+/// otra versión no pasa por ahí, el ejecutor vuelve a preguntar `exe_prohibido` antes de cerrar.
+pub const EXES_PROHIBIDOS: [&str; 5] = [
+    "millennium-clipboard.exe",
+    "explorer.exe",
+    "dwm.exe",
+    "csrss.exe",
+    "winlogon.exe",
+];
+
+/// Los segundos que se puede esperar en una acción Esperar.
+pub const ESPERA_MIN_SEG: u8 = 1;
+pub const ESPERA_MAX_SEG: u8 = 30;
+
+/// `true` si `exe` (ya en minúsculas) está en la lista prohibida.
+pub fn exe_prohibido(exe: &str) -> bool {
+    EXES_PROHIBIDOS.contains(&exe)
+}
+
+/// `true` si se puede mandar el cierre a `exe`: no está vacío, no está en la lista prohibida y no
+/// es el ejecutable de esta misma app (`propio`). Es la guarda que vuelve a mirar el ejecutor.
+pub fn se_puede_cerrar(exe: &str, propio: &str) -> bool {
+    let exe = exe.trim().to_lowercase();
+    !exe.is_empty() && !exe_prohibido(&exe) && exe != propio.trim().to_lowercase()
+}
+
+/// Valida el `.exe` de una acción Cerrar y lo deja como se guarda: sin espacios y en minúsculas.
+/// Nombre pelado (nada de carpetas) y fuera de la lista prohibida.
+pub fn exe_a_cerrar(exe: &str) -> Result<String, String> {
+    let exe = exe.trim().to_lowercase();
+    let con_carpeta = exe.contains(['\\', '/', ':']);
+    if con_carpeta || exe.len() <= ".exe".len() || !exe.ends_with(".exe") {
+        return Err("el programa a cerrar va como nombre.exe, sin carpeta".to_string());
+    }
+    if exe_prohibido(&exe) {
+        return Err(format!(
+            "no se puede cerrar {exe}: lo necesita Windows o es esta app"
+        ));
+    }
+    Ok(exe)
+}
+
 #[cfg(target_os = "windows")]
 pub use windows_impl::*;
 
@@ -125,7 +168,8 @@ mod windows_impl {
     };
 
     use super::{
-        ActionV2Dto, SceneAudio, SceneDraft, SceneOutput, SceneView, NOMBRE_ESCENA_NUEVA,
+        exe_a_cerrar, ActionV2Dto, SceneAudio, SceneDraft, SceneOutput, SceneView, ESPERA_MAX_SEG,
+        ESPERA_MIN_SEG, NOMBRE_ESCENA_NUEVA,
     };
     use crate::displays::ids::{format_display_id, parse_display_id};
 
@@ -256,7 +300,7 @@ mod windows_impl {
     }
 
     /// Una acción del editor al vendor. `Ok(None)` = se descarta (una acción que esta versión
-    /// no conoce). Los tipos de los encargos 03/03b todavía no se pueden guardar.
+    /// no conoce). `Hdr` (encargo 03b) todavía no se puede guardar.
     fn accion_a_vendor(dto: &ActionV2Dto) -> Result<Option<ActionV2>, String> {
         match dto {
             ActionV2Dto::Lanzar {
@@ -284,8 +328,17 @@ mod windows_impl {
                 }
                 Ok(Some(ActionV2::Volumen { nivel: *nivel }))
             }
-            ActionV2Dto::Cerrar { .. } => Err(no_sabe_guardar("cerrar")),
-            ActionV2Dto::Esperar { .. } => Err(no_sabe_guardar("esperar")),
+            ActionV2Dto::Cerrar { exe } => Ok(Some(ActionV2::Cerrar {
+                exe: exe_a_cerrar(exe)?,
+            })),
+            ActionV2Dto::Esperar { segundos } => {
+                if !(ESPERA_MIN_SEG..=ESPERA_MAX_SEG).contains(segundos) {
+                    return Err("esperar va de 1 a 30 segundos".to_string());
+                }
+                Ok(Some(ActionV2::Esperar {
+                    segundos: *segundos,
+                }))
+            }
             ActionV2Dto::Hdr { .. } => Err(no_sabe_guardar("hdr")),
             ActionV2Dto::Desconocida => Ok(None),
         }
@@ -305,7 +358,7 @@ mod windows_impl {
         Ok(lista)
     }
 
-    fn accion_a_dto(accion: &ActionV2) -> ActionV2Dto {
+    pub fn accion_a_dto(accion: &ActionV2) -> ActionV2Dto {
         match accion {
             ActionV2::Lanzar {
                 destino,
@@ -317,6 +370,10 @@ mod windows_impl {
                 etiqueta: etiqueta.clone(),
             },
             ActionV2::Volumen { nivel } => ActionV2Dto::Volumen { nivel: *nivel },
+            ActionV2::Cerrar { exe } => ActionV2Dto::Cerrar { exe: exe.clone() },
+            ActionV2::Esperar { segundos } => ActionV2Dto::Esperar {
+                segundos: *segundos,
+            },
             ActionV2::Desconocida => ActionV2Dto::Desconocida,
         }
     }
