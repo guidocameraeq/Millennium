@@ -273,11 +273,52 @@ fn la_escritura_doble_deja_completa_la_v2_y_filtradas_las_viejas() {
             args: vec!["1".to_string()],
         }]
     );
-    assert_eq!(acciones.entrada_v2.as_ref().map(Vec::len), Some(2));
+    assert_eq!(
+        acciones.entrada_v2.as_ref().map(Vec::len),
+        Some(1),
+        "la Desconocida no se escribe en _v2"
+    );
     assert_eq!(acciones.salida_v2, Some(vec![]));
     assert!(!acciones.esta_vacia());
+    // Viejas vacías pero _v2 con algo que Accion no representa: NO está vacía.
+    let solo_v2 = PerfilAcciones {
+        entrada_v2: Some(vec![ActionV2::Desconocida]),
+        ..Default::default()
+    };
+    assert!(!solo_v2.esta_vacia());
     assert!(PerfilAcciones::default().esta_vacia());
     assert!(PerfilAcciones::desde_v2(vec![], vec![]).esta_vacia());
+}
+
+#[test]
+fn al_leer_gana_la_v2_si_existe() {
+    let acciones = PerfilAcciones {
+        entrada: vec![Accion::Lanzar {
+            destino: "steam://rungameid/1".to_string(),
+            args: vec![],
+        }],
+        entrada_v2: Some(vec![ActionV2::Lanzar {
+            destino: "steam://rungameid/1".to_string(),
+            args: vec![],
+            etiqueta: Some("Hades II".to_string()),
+        }]),
+        ..Default::default()
+    };
+    assert_eq!(
+        acciones.entrada_completa(),
+        vec![ActionV2::Lanzar {
+            destino: "steam://rungameid/1".to_string(),
+            args: vec![],
+            etiqueta: Some("Hades II".to_string()),
+        }]
+    );
+    // Con _v2 presente y vacía, gana también (no se resucitan las viejas).
+    let vaciada = PerfilAcciones {
+        entrada: vec![Accion::Volumen { nivel: 5 }],
+        entrada_v2: Some(vec![]),
+        ..Default::default()
+    };
+    assert!(vaciada.entrada_completa().is_empty());
 }
 
 #[test]

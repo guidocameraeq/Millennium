@@ -206,6 +206,15 @@ impl PerfilAcciones {
     /// Escritura doble: la lista completa en `_v2` y las viejas SOLO con
     /// Lanzar y Volumen (lo único que `Accion` sabe representar).
     pub fn desde_v2(entrada: Vec<ActionV2>, salida: Vec<ActionV2>) -> Self {
+        // Una acción `Desconocida` (de una versión más nueva) no se puede guardar: se descarta.
+        let sin_desconocidas = |lista: Vec<ActionV2>| -> Vec<ActionV2> {
+            lista
+                .into_iter()
+                .filter(|accion| !matches!(accion, ActionV2::Desconocida))
+                .collect()
+        };
+        let entrada = sin_desconocidas(entrada);
+        let salida = sin_desconocidas(salida);
         Self {
             entrada: entrada.iter().filter_map(ActionV2::a_accion).collect(),
             salida: salida.iter().filter_map(ActionV2::a_accion).collect(),
