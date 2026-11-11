@@ -48,6 +48,19 @@ const VISTAS = {
   'esc-actualizar-si': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-upd', '.scene-card:nth-child(2) .scene-upd-yes'],
   'esc-actualizar': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-upd'],
   'esc-probando': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-test'],
+  // Recorridos que el 05 no ejercía (encargo 06). Los pasos { set } y { mock } los entiende armarHtml.
+  'esc-aplicar-aviso': [{ mock: '__MOCK__.windowsPoneOtra=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-apply'],
+  'esc-guardar-aviso': [{ mock: '__MOCK__.avisoAtajo=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit', '.scene-save'],
+  'esc-probar-aviso': [{ mock: '__MOCK__.windowsPoneOtra=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit', '.scene-test'],
+  'esc-copia-editor': [{ mock: '__MOCK__.conProyector()' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '#scenes-new', '.scene-from-copy', '.scene-copy-pick[data-name="Película"]'],
+  'esc-copia-guardar': [{ mock: '__MOCK__.conProyector()' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '#scenes-new', '.scene-from-copy', '.scene-copy-pick[data-name="Película"]', '.scene-save'],
+  'esc-renombrar-ajustes': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(3) .scene-more', '.scene-card:nth-child(3) .scene-rename', { set: '.scene-rename-input', value: 'Cine' }, '.scene-rename-ok', '.displays-tab[data-tab="settings"]'],
+  'esc-volumen-vacio': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '#scenes-new', '.scene-from-blank', { set: '.scene-col:nth-child(1) > select', value: 'volumen' }, { set: '.scene-form-input', value: '' }],
+  'esc-juego-sin-lista': [{ mock: '__MOCK__.sinJuegos=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', { set: '.scene-col:nth-child(1) > select', value: 'juego' }],
+  'esc-borrar-falla': [{ mock: '__MOCK__.borrarFalla=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-del', '.scene-card:nth-child(2) .scene-del-yes'],
+  'esc-nombre-repetido': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit', { set: '#scene-ed-name', value: 'Trabajo' }],
+  'esc-renombrar-repetido': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-rename', { set: '.scene-rename-input', value: 'Trabajo' }, '.scene-rename-ok'],
+  'esc-renombrar-prueba': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-rename', '.scene-card:nth-child(1) .scene-edit', '.scene-test', '.scene-back'],
   'disp-ajustes': ['[data-action="section-displays"]', '.displays-tab[data-tab="settings"]'],
   'disp-lienzo': ['[data-action="section-displays"]', '.displays-tab[data-tab="canvas"]'],
 };
@@ -86,9 +99,18 @@ function armarHtml(tmp, vista) {
   html = html.replace(/<head>/i, () => '<head>' + base + errores + mock + quieto);
   const clics = VISTAS[vista];
   if (clics.length) {
-    const js = 'window.addEventListener("load",function(){' + clics.map((sel, i) =>
-      'setTimeout(function(){var b=document.querySelector(' + JSON.stringify(sel) + ');if(b)b.click();else __err("NO HAY: "+' +
-      JSON.stringify(sel) + ');},' + (300 + i * 300) + ');').join('') + '});';
+    // Un paso es un selector (clic), { set: selector, value } (escribe en un campo) o
+    // { mock: 'js' } (ajusta el mock: window.__MOCK__).
+    const paso = (p) => {
+      if (typeof p === 'string') {
+        return 'var b=document.querySelector(' + JSON.stringify(p) + ');if(b)b.click();else __err("NO HAY: "+' + JSON.stringify(p) + ');';
+      }
+      if (p.mock) return 'try{' + p.mock + '}catch(e){__err("MOCK: "+e);}';
+      return 'var i=document.querySelector(' + JSON.stringify(p.set) + ');if(i){i.value=' + JSON.stringify(p.value) +
+        ';i.dispatchEvent(new Event("input",{bubbles:true}));i.dispatchEvent(new Event("change",{bubbles:true}));}else __err("NO HAY: "+' + JSON.stringify(p.set) + ');';
+    };
+    const js = 'window.addEventListener("load",function(){' + clics.map((p, i) =>
+      'setTimeout(function(){' + paso(p) + '},' + (300 + i * 300) + ');').join('') + '});';
     html = html.replace(/<\/body>/i, () => '<script id="__banco_clic__">' + js + '</script></body>');
   }
   const out = path.join(tmp, vista + '.html');

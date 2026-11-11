@@ -147,11 +147,62 @@
   }
   function resultado(kind, name) {
     emitir('displays-scenes-changed', { kind });
-    return { scenes: lista(), name, warnings: [] };
+    const warnings = MOCK.avisoAtajo
+      ? ['se guardó, pero el atajo Ctrl+Alt+2 no se pudo activar (¿lo usa otro programa?)'] : [];
+    return { scenes: lista(), name, warnings };
   }
 
+  // Ganchos para las vistas del banco (capturar.cjs los ajusta con pasos { mock: '...' }).
+  const MOCK = window.__MOCK__ = {
+    windowsPoneOtra: false, // APLICAR y PROBAR avisan "Windows la dejó en otra resolución"
+    sinJuegos: false,       // Steam sin juegos instalados
+    borrarFalla: false,     // BORRAR responde error
+    avisoAtajo: false,      // GUARDAR responde con warnings (el atajo no se pudo activar)
+    conProyector() {        // una pantalla que Windows ve pero nunca vimos prendida, usada por Película
+      if (pantallas.some((p) => p.displayId === ID_PROY)) return;
+      pantallas.push({ displayId: ID_PROY, name: 'Proyector', connected: true, active: false });
+      modos[ID_PROY] = { remembered: false, modes: [] };
+      buscar('Película').outputs.push(salida(ID_PROY, true, false, 4480, 0, 1280, 720, 60000));
+    },
+  };
+  const ID_PROY = '81234:4361:7777777777777777777';
+  let escenaPendiente = null; // la escena que APLICAR dejó esperando confirmación
+
+  // Los textos son los del backend (displays_cmds.rs / vendor manager.rs).
   function exigirSinPrueba() {
-    if (prueba) throw 'esperando que confirmes la prueba';
+    if (prueba) throw prueba.isTest ? 'esperando que confirmes la prueba' : 'ya hay un cambio esperando que lo confirmes';
+  }
+  const hz = (mhz) => String(Math.round(mhz / 10) / 100);
+  const textoModo = (o) => `${o.width}×${o.height} a ${hz(o.refreshMhz)} Hz`;
+  // Como modos::validar_resoluciones: un modo de los que la pantalla reportó, "Dejar la que tenga"
+  // o lo que la misma escena ya tenía guardado. Las apagadas no se miran.
+  function validarResoluciones(outputs, original) {
+    outputs.filter((o) => o.enabled).forEach((o) => {
+      if (!o.width && !o.height) return;
+      const yaLaTenia = original && original.outputs.some((v) => v.displayId === o.displayId
+        && v.width === o.width && v.height === o.height && v.refreshMhz === o.refreshMhz);
+      if (yaLaTenia) return;
+      const m = modos[o.displayId];
+      if (m && m.modes.some((x) => x.width === o.width && x.height === o.height && Math.abs(x.refreshMhz - o.refreshMhz) < 1000)) return;
+      const nombre = nombreDe(o.displayId);
+      if (!m || !m.modes.length) {
+        throw `todavía no sé qué resoluciones acepta ${nombre}: prendela una vez o elegí "Dejar la que tenga"`;
+      }
+      throw `${nombre} no reporta ${textoModo(o)}: elegí una de su lista o "Dejar la que tenga"`;
+    });
+  }
+  // El aviso de resolución distinta de aplicarEscena/probar (modos::avisos_tras_aplicar).
+  function avisosDeResolucion(outputs) {
+    if (!MOCK.windowsPoneOtra) return [];
+    return outputs.filter((o) => o.enabled && o.width > 0).map((o) =>
+      `pediste ${textoModo(o)} para ${nombreDe(o.displayId)}, pero Windows la dejó en 1920×1080 a 60 Hz`);
+  }
+  function avisarAplicado(outputs, esPrueba) {
+    const ev = { kind: 'applied', timeoutMs: 15000 };
+    if (esPrueba) ev.isTest = true;
+    const avisos = avisosDeResolucion(outputs);
+    if (avisos.length) ev.warnings = avisos;
+    emitir('displays-confirmation', ev);
   }
   function exigirEscena(name) {
     const e = buscar(name);
@@ -202,6 +253,11 @@
     });
     return out;
   }
+  const ajustes = { revertTimeoutSecs: 15, globalShortcutsEnabled: true };
+  const perfiles = () => escenas.map((e) => ({
+    name: e.name, activeCount: e.outputs.filter((o) => o.enabled).length, summary: resumen(e.outputs),
+    shortcut: e.shortcut, audio: e.audio, actions: { entrada: [], salida: [] },
+  }));
   const snapshotDeEscenas = () => ({ source: 'windows', displays, pending: prueba ? clon(prueba) : null });
 
   Object.assign(handlers, {
@@ -231,6 +287,7 @@
       const original = originalName == null ? null : exigirEscena(originalName);
       if (buscar(name) && buscar(name) !== original) throw `ya hay una escena que se llama "${name}"`;
       const outputs = validarPantallas(d.outputs);
+      validarResoluciones(outputs, original);
       const entradaV2 = validarAcciones(d.entradaV2);
       const salidaV2 = validarAcciones(d.salidaV2);
       const shortcut = d.shortcut || null;
@@ -284,18 +341,20 @@
       const ausente = outputs.find((o) => o.enabled && !pantallas.some((p) => p.displayId === o.displayId));
       if (ausente) throw `${nombreDe(ausente.displayId)} no está conectada: conectala o apagala en la escena para probar`;
       prueba = { remainingMs: 15000, isTest: true };
-      emitir('displays-confirmation', { kind: 'applied', timeoutMs: 15000, isTest: true });
+      avisarAplicado(outputs, true);
       return snapshotDeEscenas();
     },
 
     displays_confirm: () => {
       prueba = null;
+      if (escenaPendiente) { puestaAhora = escenaPendiente; escenaPendiente = null; }
       emitir('displays-confirmation', { kind: 'confirmed' });
       return snapshotDeEscenas();
     },
 
     displays_revert: () => {
       prueba = null;
+      escenaPendiente = null;
       emitir('displays-confirmation', { kind: 'reverted', reason: 'manual' });
       return snapshotDeEscenas();
     },
@@ -305,11 +364,47 @@
       remembered: modos[p.displayId].remembered, modes: clon(modos[p.displayId].modes),
     })),
 
-    displays_list_steam_games: () => [
+    displays_list_steam_games: () => (MOCK.sinJuegos ? [] : [
       { appId: '1245620', name: 'Elden Ring' },
       { appId: '1145350', name: 'Hades II' },
       { appId: '252950', name: 'Rocket League' },
-    ],
+    ]),
+
+    // APLICAR (de hoy): pone la escena con la cuenta regresiva; las acciones corren al confirmar.
+    displays_load_profile: ({ name } = {}) => {
+      exigirSinPrueba();
+      const e = exigirEscena(name);
+      prueba = { remainingMs: 15000, isTest: false };
+      escenaPendiente = e.name;
+      avisarAplicado(e.outputs, false);
+      return snapshotDeEscenas();
+    },
+
+    // BORRAR (de hoy): devuelve ProfileView[]; la pantalla vuelve a pedir la lista con el evento.
+    displays_delete_profile: ({ name } = {}) => {
+      if (MOCK.borrarFalla) throw 'ya hay un cambio esperando que lo confirmes';
+      exigirSinPrueba();
+      const e = exigirEscena(name);
+      escenas = escenas.filter((x) => x !== e);
+      if (puestaAhora === name) puestaAhora = null;
+      emitir('displays-scenes-changed', { kind: 'deleted' });
+      return perfiles();
+    },
+
+    // La lista de hoy sigue a las escenas (renombrar, crear y borrar la cambian, como en el backend).
+    displays_list_profiles: () => perfiles(),
+
+    displays_get_settings: () => {
+      const arranque = escenas.find((e) => e.startup);
+      return { revertTimeoutSecs: ajustes.revertTimeoutSecs, startupProfileName: arranque ? arranque.name : null,
+        globalShortcutsEnabled: ajustes.globalShortcutsEnabled };
+    },
+    displays_update_settings: ({ settings: nuevos } = {}) => {
+      ajustes.revertTimeoutSecs = Number(nuevos.revertTimeoutSecs) || 15;
+      ajustes.globalShortcutsEnabled = !!nuevos.globalShortcutsEnabled;
+      escenas.forEach((e) => { e.startup = e.name === nuevos.startupProfileName; });
+      return handlers.displays_get_settings();
+    },
 
     displays_list_chrome_profiles: () => ({
       chromePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
