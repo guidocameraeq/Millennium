@@ -12,7 +12,7 @@
     baseline: '',         // JSON del borrador al abrir, para "cambios sin guardar"
     originalName: null,   // null = escena nueva
     confirmCancel: false,
-    copyNote: [],         // pantallas de una copia que pasaron a "Dejar la que tenga" (ver releaseUnknownModes)
+    copyNote: [],         // por qué pantallas de una copia pasaron a "Dejar la que tenga" (ver releaseUnknownModes)
     error: '',            // error del backend al probar/guardar, tal cual
     busy: false,
     editAct: null,        // { list: 'entradaV2'|'salidaV2', i } con el formulario abierto
@@ -205,9 +205,13 @@
       const known = !!entry && entry.modes.some((m) => m.width === o.width && m.height === o.height
         && Math.abs(m.refreshMhz - o.refreshMhz) < 1000);
       if (known) return;
+      const antes = modeLabel(o);
       o.width = 0;
       o.height = 0;
-      dejadas.push(o.name);
+      // Dos casos, como el backend: nunca la vi prendida / la vi pero no reportó ese modo.
+      dejadas.push(entry && entry.modes.length
+        ? `${o.name} no reporta ${antes}`
+        : `${o.name} todavía no la vi prendida y no sé qué resoluciones acepta`);
     });
     return dejadas;
   }
@@ -298,7 +302,7 @@
     root.appendChild(mkEl('div', 'scene-back-row')).appendChild(back);
     root.appendChild(mkEl('div', 'scene-banner', 'Estás editando en borrador: nada cambia en tus pantallas hasta que toques PROBAR.'));
     if (sceneEd.copyNote.length) {
-      root.appendChild(mkEl('p', 'scene-note', `En esta copia, ${sceneEd.copyNote.join(', ')} queda en "Dejar la que tenga": todavía no la vi prendida y no sé qué resoluciones acepta. Prendela una vez y vas a poder elegirla.`));
+      root.appendChild(mkEl('p', 'scene-note', `En esta copia quedan en "Dejar la que tenga": ${sceneEd.copyNote.join('; ')}. Prendela una vez y vas a poder elegirla.`));
     }
     root.appendChild(buildNameSection(d));
     root.appendChild(buildScreensSection(d));
@@ -339,7 +343,14 @@
   }
 
   // 2 · Pantallas
-  function modesFor(displayId) { return sceneEd.modes.find((m) => m.displayId === displayId) || null; }
+  // La misma pantalla que para el backend (escenas.rs mismo_monitor): id igual, o mismo EDID conocido
+  // (el LUID del adaptador cambia entre arranques; el id guardado en la escena puede traer el viejo).
+  function sameMonitor(a, b) {
+    if (a === b) return true;
+    const ea = String(a).split(':')[2];
+    return !!ea && ea !== 'none' && ea === String(b).split(':')[2];
+  }
+  function modesFor(displayId) { return sceneEd.modes.find((m) => sameMonitor(m.displayId, displayId)) || null; }
   const modeValue = (m) => `${m.width}x${m.height}@${m.refreshMhz}`;
   const modeLabel = (m) => `${m.width}×${m.height} · ${Math.round((m.refreshMhz / 1000) * 100) / 100} Hz`;
 
@@ -409,6 +420,7 @@
     const sel = mkSelect(opts, cur);
     sel.disabled = !o.enabled || o.connected === false;
     sel.addEventListener('change', () => {
+      sceneEd.copyNote = [];
       if (sel.value === 'dejar') { o.width = 0; o.height = 0; }
       else {
         const m = /^(\d+)x(\d+)@(\d+)$/.exec(sel.value);
@@ -427,6 +439,7 @@
       const live = await invoke('displays_scene_draft', { from: 'current' });
       if (live && Array.isArray(live.outputs)) {
         sceneEd.draft.outputs = live.outputs;
+        sceneEd.copyNote = [];
         fixPrimary(sceneEd.draft);
         renderSceneEditor();
         markDirty();
