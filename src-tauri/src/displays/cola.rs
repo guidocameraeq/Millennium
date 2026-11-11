@@ -30,6 +30,8 @@ pub trait Ejecutor: Send + 'static {
     fn lanzar(&mut self, destino: &str, args: &[String]);
     fn volumen(&mut self, nivel: u8);
     fn cerrar(&mut self, exe: &str);
+    /// Prender o apagar el HDR de una pantalla (encargo 07; la lógica está en `hdr.rs`).
+    fn hdr(&mut self, pantalla: &str, prender: bool);
 }
 
 /// El tiempo. `dormir` espera `dur` o se corta antes si `cancelado()` da `true`; devuelve
@@ -78,7 +80,8 @@ pub fn correr_lista(
                     );
                 }
             }
-            // Una acción de una versión más nueva (o HDR hasta el encargo 03b): no se corre.
+            ActionV2::Hdr { pantalla, prender } => ejecutor.hdr(pantalla, *prender),
+            // Una acción de una versión más nueva: no se corre.
             ActionV2::Desconocida => {
                 crate::runtime_log::warn("[displays] acción desconocida; se saltea".to_string());
             }
