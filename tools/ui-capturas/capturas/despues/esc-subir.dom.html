@@ -1,0 +1,753 @@
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Millennium // GRID</title>
+</head>
+<body data-app="displays">
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-horizon" aria-hidden="true">
+    <div class="horizon-floor"></div>
+  </div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+  <div class="scanline" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
+  <div class="app">
+    <div class="topbar">
+      <header class="hud">
+        <div class="hud-left">
+          <div class="logo">
+            <span class="logo-mark">◣◢</span>
+            <span class="logo-text">MILLENNIUM</span>
+            <span class="logo-sub">GRID // <span id="hud-version">v0.0.0-mock</span></span>
+          </div>
+        </div>
+        <div class="hud-sections app-switch" id="hud-sections" role="tablist" aria-label="Cambiar de app">
+          <button class="hud-btn hud-section-btn" type="button" role="tab" aria-selected="false" data-action="section-clipboard" data-section="clipboard" title="Portapapeles">
+            <span class="hud-btn-glyph">▦</span>CLIPBOARD
+          </button>
+          <button class="hud-btn hud-section-btn is-active" type="button" role="tab" aria-selected="true" id="hud-displays-btn" data-action="section-displays" data-section="displays" title="Monitores conectados">
+            <span class="hud-btn-glyph">▤</span>DISPLAYS
+          </button>
+        </div>
+        <div class="hud-right">
+          <button class="hud-btn app-settings-btn" data-action="app-settings" title="Ajustes de la app — actualizador, arranque, apariencia">
+            <span class="hud-btn-glyph">⚙</span>APP
+          </button>
+        </div>
+      </header>
+      <div class="app-toolbars">
+        <div class="app-toolbar" data-bar="clipboard">
+          <div class="hud-center">
+            <div class="hud-stat">
+              <span class="hud-label">HOST</span>
+              <span class="hud-value" id="hud-host">MILLENNIUM-PC</span>
+            </div>
+            <div class="hud-stat">
+              <span class="hud-label">NODE</span>
+              <span class="hud-value mono" id="hud-ip">192.168.1.10:53317</span>
+            </div>
+          </div>
+          <div class="toolbar-actions">
+            <button class="hud-btn" data-action="refresh" title="Rescan network">
+              <span class="hud-btn-glyph">↻</span>SCAN
+            </button>
+            <button class="hud-btn" data-action="history" title="Past transfers">
+              <span class="hud-btn-glyph">≡</span>LOG
+            </button>
+            <button class="hud-btn" data-action="qr" title="QR pairing">
+              <span class="hud-btn-glyph">▣</span>QR
+            </button>
+            <button class="hud-btn" data-action="settings" title="Ajustes de Clipboard">
+              <span class="hud-btn-glyph">⚙</span>CONF
+            </button>
+          </div>
+        </div>
+        <div class="app-toolbar" data-bar="displays">
+          <div class="toolbar-status mono">
+            <span class="hud-btn-glyph">▤</span>
+            <span id="displays-count">2 monitor(es) · 2 activo(s)</span>
+          </div>
+          <div class="toolbar-actions">
+            <button class="hud-btn" id="displays-refresh" data-action="displays-refresh" title="Releer monitores">
+              <span class="hud-btn-glyph">↻</span>REFRESH
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <main class="grid" id="clipboard-section" hidden="">
+      <section class="card peers">
+        <div class="card-corners">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <header class="card-head">
+          <h2 class="card-title">
+            <span class="card-pulse"></span>PEERS DETECTED
+          </h2>
+          <div class="card-meta">
+            <span class="badge" id="peer-count">01</span>
+          </div>
+        </header>
+        <div class="filter-bar">
+          <button class="filter-btn active" data-filter="favorites">★ FAVORITES</button>
+          <button class="filter-btn" data-filter="all">ALL</button>
+          <div class="filter-spacer"></div>
+          <button class="filter-btn add-peer-btn" id="add-peer-btn" title="Agregar un equipo por su IP, si no aparece solo en la lista.">+ ADD</button>
+        </div>
+        <span class="filter-hint mono" id="filter-hint">01 visible</span>
+        <ul class="peer-list" id="peer-list">
+          <li class="peer-item selected" data-id="aa11bb22cc33dd44" data-status="online" data-manual="false">
+      <div class="peer-icon" data-icon="laptop"><img src="assets/peer-icons/ring.png" alt="Millennium Ring" class="peer-item-img" data-icon-key="laptop"></div>
+      <div class="peer-info">
+        <div class="peer-name-row">
+          <span class="peer-name" title="Double-click to rename">DRACOSSSLAPTOP</span>
+          <button class="peer-action-btn details-btn" title="Peer details">⋯</button>
+        </div>
+        <div class="peer-meta">
+          <span class="peer-hex mono">0xA1B2</span>
+          <span class="peer-ip mono">192.168.1.20</span>
+        </div>
+        <div class="peer-status-row">
+          <div class="peer-status online">
+            <span class="status-dot"></span><span class="status-label">ONLINE</span>
+          </div>
+          <div class="peer-toggles">
+            <button class="peer-toggle fav-toggle active" title="Toggle favorite" aria-pressed="true">★</button>
+            <button class="peer-toggle clip-toggle active" title="Toggle clipboard sync" aria-pressed="true">📋</button>
+          </div>
+        </div>
+      </div>
+    </li><li class="peer-loading">⌛ SCANNING NETWORK...</li>
+        </ul>
+      </section>
+      <section class="card composer">
+        <div class="card-corners">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <header class="card-head">
+          <h2 class="card-title">
+            <span class="card-arrow">▸</span>TRANSMIT TO
+            <span class="target" id="target-name">DRACOSSSLAPTOP</span>
+          </h2>
+          <div class="target-hex mono" id="target-hex">0xA1B2</div>
+        </header>
+        <div class="mode-switch">
+          <button class="mode-btn active" data-mode="text">
+            <span class="mode-glyph">A</span>TEXT
+          </button>
+          <button class="mode-btn" data-mode="file">
+            <span class="mode-glyph">⬢</span>FILE
+          </button>
+        </div>
+        <div class="mode-panel active" id="mode-text">
+          <div class="textarea-wrap">
+            <textarea id="text-composer" spellcheck="false" placeholder="TYPE OR PASTE &gt; TRANSMIT TO PEER..."></textarea>
+            <div class="textarea-grid"></div>
+          </div>
+          <div class="composer-meta">
+            <span class="mono">CTRL+ENTER → TRANSMIT</span>
+          </div>
+        </div>
+        <div class="mode-panel" id="mode-file" hidden="">
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-icon">⬢</div>
+            <div class="dropzone-text">
+              DROP FILES TO QUEUE
+              <small>or click to browse</small>
+            </div>
+            <div class="dropzone-count mono" id="dropzone-count" hidden=""></div>
+            <div class="dropzone-corners">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <ul class="file-queue" id="file-queue" hidden=""></ul>
+        </div>
+        <div class="send-section">
+          <div class="progress-block" id="progress-block" hidden="">
+            <div class="progress-label mono">
+              <span id="progress-text">TRANSMITTING //</span>
+              <span class="progress-pct mono" id="progress-pct">0%</span>
+            </div>
+            <div class="progress-segments" id="progress-segments"><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+          </div>
+          <div class="progress-block rx-progress-block" id="rx-progress-block" hidden="">
+            <div class="progress-label mono">
+              <span id="rx-progress-text">RECEIVING //</span>
+              <span class="progress-pct mono" id="rx-progress-pct">0%</span>
+            </div>
+            <div class="progress-segments" id="rx-progress-segments"><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+          </div>
+          <button class="transmit-btn" id="send-btn">
+            <span class="transmit-arrow">▸</span>
+            <span class="transmit-text">TRANSMIT</span>
+            <span class="transmit-arrow">◂</span>
+          </button>
+        </div>
+      </section>
+    </main>
+    <section class="displays-section" id="displays-section" aria-label="Displays">
+      <div class="displays-shell">
+        <div class="card-corners">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <header class="modal-head">
+          <span class="modal-glyph">▤</span>
+          <span class="modal-title">DISPLAYS</span>
+        </header>
+        <nav class="displays-tabs" id="displays-tabs" role="tablist">
+          <button class="displays-tab is-active" type="button" data-tab="scenes" role="tab">ESCENAS</button>
+          <button class="displays-tab" type="button" data-tab="list" role="tab">LISTA</button>
+          <button class="displays-tab" type="button" data-tab="canvas" role="tab">LIENZO</button>
+          <button class="displays-tab" type="button" data-tab="settings" role="tab">AJUSTES</button>
+        </nav>
+        <div class="modal-body">
+          <p class="modal-error" id="displays-error" hidden=""></p>
+          <div class="displays-pane" data-pane="list" hidden="">
+            <p class="mono displays-mock-warning" id="displays-mock-warning" hidden="">
+              ⚠ DATOS DE PRUEBA — estos monitores son falsos (MONARCH_FORCE_MOCK_BACKEND)
+            </p>
+            <ul class="displays-list" id="displays-list"><li class="display-item" data-id="mon-1" data-active="true">
+      <div class="display-glyph">▤</div>
+      <div class="display-info">
+        <div class="display-name">DELL U2723QE</div>
+        <div class="display-meta mono">
+          <span class="display-res">2560 × 1440</span>
+          <span class="display-sep">·</span>
+          <span class="display-hz">59.95 Hz</span>
+        </div>
+      </div>
+      <div class="display-badges"><span class="badge display-badge primary">PRIMARY</span><span class="badge display-badge active">ACTIVE</span></div>
+      <div class="display-actions">
+        <button class="modal-btn small display-primary-btn" type="button" hidden="">★ primario</button>
+        <button class="modal-btn small display-toggle-btn reject" type="button" title="Apagar este monitor">DETACH</button>
+      </div></li><li class="display-item" data-id="mon-2" data-active="true">
+      <div class="display-glyph">▤</div>
+      <div class="display-info">
+        <div class="display-name">LG TV OLED</div>
+        <div class="display-meta mono">
+          <span class="display-res">1920 × 1080</span>
+          <span class="display-sep">·</span>
+          <span class="display-hz">60 Hz</span>
+        </div>
+      </div>
+      <div class="display-badges"><span class="badge display-badge active">ACTIVE</span></div>
+      <div class="display-actions">
+        <button class="modal-btn small display-primary-btn" type="button" title="Hacer este monitor el primario (pasa por la cuenta regresiva).">★ primario</button>
+        <button class="modal-btn small display-toggle-btn reject" type="button" title="Apagar este monitor">DETACH</button>
+      </div></li></ul>
+            <p class="mono displays-empty" id="displays-empty" hidden="">Sin monitores para mostrar.</p>
+          </div>
+          <div class="displays-pane" data-pane="scenes">
+            <div class="scenes-view" id="scenes-list-view">
+              <div class="scenes-top">
+                <div>
+                  <h2 class="scenes-title">ESCENAS</h2>
+                  <p class="scenes-sub mono">Cada escena es una forma de tener tus pantallas.</p>
+                </div>
+                <button class="modal-btn small accept" type="button" id="scenes-new">＋ NUEVA ESCENA</button>
+              </div>
+              <div class="scenes-inline" id="scenes-chooser" hidden=""></div>
+              <p class="mono scenes-reason" id="scenes-block-reason" hidden=""></p>
+              <ul class="scenes-list" id="scenes-list"><li class="scene-card is-current" data-name="Trabajo">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">💼</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i class="off" title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Trabajo</span><span class="scene-badge">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor izquierdo, Monitor central · Apaga: LG TV OLED · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 Parlantes</span><span class="scene-chip">⌨ Ctrl+Alt+1</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button" disabled="">PUESTA</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir" disabled="">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Película">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🍿</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Película</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor central, LG TV OLED · Apaga: Monitor izquierdo · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 TV HDMI</span><span class="scene-chip">🎬 Al entrar: 🌐 Chrome Casa → netflix.com</span><span class="scene-chip good">⏻ arranca con Windows</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Jugar en la TV">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🎮</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 21px; top: 18px; width: 44px; height: 25px;"></i><i class="off" title="Monitor central" style="left: 6px; top: 10px; width: 59px; height: 33px;"></i><i class="pri" title="LG TV OLED" style="left: 65px; top: 10px; width: 89px; height: 50px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Jugar en la TV</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: LG TV OLED · Apaga: Monitor izquierdo, Monitor central · Principal: LG TV OLED</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 TV HDMI</span><span class="scene-chip">⌨ Ctrl+Alt+2</span><span class="scene-chip">🎬 Al entrar: 🎮 Big Picture · 🔊 Volumen 40% · ⏳ Esperar 5 s · 🌈 HDR LG TV OLED: prender</span><span class="scene-chip">🎬 Al salir: ⏹ Cerrar Big Picture · ✕ Cerrar steam.exe · 🌈 HDR LG TV OLED: apagar</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Solo central">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🖥️</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i class="off" title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Solo central</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor central · Apaga: Monitor izquierdo, LG TV OLED · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 Audio: no toca</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar" disabled="">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li></ul>
+              <p class="mono displays-empty" id="scenes-empty" hidden="">Todavía no hay escenas. ＋ NUEVA ESCENA arma la primera.</p>
+              <p class="mono scenes-note">La app reconoce qué escena coincide con cómo están tus pantallas, aunque las hayas puesto a mano.</p>
+            </div>
+            <div class="scenes-editor" id="scenes-editor-view" hidden=""></div>
+          </div>
+          <div class="displays-pane" data-pane="settings" hidden="">
+            <div class="displays-setting">
+              <label class="displays-setting-label" for="displays-revert-secs">Plazo del auto-revert</label>
+              <p class="displays-setting-hint">Cuántos segundos espera un cambio antes de volver solo si no lo confirmás.</p>
+              <div class="displays-setting-row">
+                <input class="displays-setting-input" id="displays-revert-secs" type="number" min="3" max="120" step="1" inputmode="numeric">
+                <span class="displays-setting-unit">segundos</span>
+                <button class="modal-btn small accept" type="button" id="displays-settings-save">GUARDAR</button>
+              </div>
+            </div>
+            <div class="displays-setting">
+              <label class="displays-setting-label" for="displays-startup-profile">Aplicar un perfil al encender</label>
+              <p class="displays-setting-hint">Al arrancar Windows con Millennium en la bandeja (autostart), aplica este perfil solo. Si el layout ya coincide, no hace nada.</p>
+              <div class="displays-setting-row">
+                <select class="displays-setting-select" id="displays-startup-profile">
+                  <option value="">— ninguno —</option>
+                </select>
+              </div>
+            </div>
+            <div class="displays-setting">
+              <label class="displays-setting-label">Atajos de teclado por perfil</label>
+              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por escena en la pestaña ESCENAS. Apagado, ninguno funciona.</p>
+              <div class="displays-setting-row">
+                <label class="sound-toggle">
+                  <input type="checkbox" id="displays-shortcuts-enabled">
+                  <span class="sound-track"><span class="sound-thumb"></span></span>
+                  <span class="settings-value mono" id="displays-shortcuts-enabled-label">ON</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="displays-pane" data-pane="canvas" hidden="">
+            <p class="displays-canvas-hint mono">Arrastrá los monitores — se pegan al borde. APLICAR lo manda a Windows (vuelve solo si no confirmás).</p>
+            <div class="displays-canvas" id="displays-canvas"></div>
+            <p class="mono displays-empty" id="displays-canvas-empty" hidden="">No hay monitores activos para acomodar.</p>
+            <div class="displays-canvas-actions">
+              <button class="modal-btn small" type="button" id="displays-canvas-reset">↺ DESHACER CAMBIOS</button>
+              <button class="modal-btn small accept" type="button" id="displays-canvas-apply">✓ APLICAR</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <footer class="status-strip">
+      <div class="status-item">
+        <span class="status-dot active"></span>
+        <span class="status-text mono" id="status-msg">DISPLAYS · orden guardado</span>
+      </div>
+      <div class="status-item">
+        <span class="status-key">PEERS</span>
+        <span class="status-val mono" id="status-peers">02</span>
+      </div>
+      <div class="status-item">
+        <span class="status-key">FAV</span>
+        <span class="status-val mono" id="status-fav">01</span>
+      </div>
+      <div class="status-item">
+        <label class="sound-toggle">
+          <input type="checkbox" id="sound-toggle">
+          <span class="sound-track"><span class="sound-thumb"></span></span>
+          <span class="status-key">CLACK</span>
+        </label>
+      </div>
+    </footer>
+  </div>
+  <div class="alert" id="toast" hidden="">
+    <div class="alert-corners">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <div class="alert-head">
+      <span class="alert-glyph">▸</span>
+      <span class="alert-title">TRANSMIT OK</span>
+    </div>
+    <div class="alert-body" id="toast-text"></div>
+  </div>
+  <div class="alert" id="incoming-toast" hidden="">
+    <div class="alert-corners">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <div class="alert-head">
+      <span class="alert-glyph">◂</span>
+      <span class="alert-title" id="incoming-toast-title">INCOMING</span>
+    </div>
+    <div class="alert-body" id="incoming-toast-text"></div>
+  </div>
+  <div class="modal-backdrop" id="incoming-modal" hidden="">
+    <div class="modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">▾</span>
+        <span class="modal-title">INCOMING FILES</span>
+      </header>
+      <div class="modal-body">
+        <div class="modal-sender">
+          <span class="hud-label">FROM</span>
+          <span class="modal-sender-name" id="incoming-sender-name">—</span>
+          <span class="modal-sender-hex mono" id="incoming-sender-hex">—</span>
+        </div>
+        <div class="modal-stats mono">
+          <span><span id="incoming-file-count">0</span> FILES</span>
+          <span class="modal-stat-sep">·</span>
+          <span id="incoming-total-size">0 B</span>
+        </div>
+        <ul class="modal-file-list" id="incoming-file-list"></ul>
+        <div class="modal-timer mono" id="incoming-timer">awaiting decision · 60s</div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn reject" id="incoming-reject">✕ REJECT</button>
+        <button class="modal-btn accept" id="incoming-accept">▸ ACCEPT</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="peer-details-modal" hidden="">
+    <div class="modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">◈</span>
+        <span class="modal-title" id="peer-details-title">PEER</span>
+      </header>
+      <div class="modal-body">
+        <div class="icon-picker-block">
+          <div class="icon-current" id="peer-details-icon-current"></div>
+          <div class="icon-picker" id="peer-details-icon-picker"></div>
+          <div class="icon-picker-hint mono">CHOOSE ICON FOR THIS PEER</div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">NAME</span>
+          <input type="text" class="text-input" id="peer-details-name" maxlength="64" autocomplete="off">
+        </div>
+        <div class="settings-row settings-info">
+          <span class="settings-label">FINGERPRINT</span>
+          <span class="settings-value mono" id="peer-details-fp"></span>
+        </div>
+        <div class="settings-row settings-info">
+          <span class="settings-label">ADDRESS</span>
+          <span class="settings-value mono" id="peer-details-addr"></span>
+        </div>
+        <div class="settings-row settings-info">
+          <span class="settings-label">STATUS</span>
+          <span class="settings-value mono" id="peer-details-status"></span>
+        </div>
+        <div class="settings-row settings-info" id="peer-details-tags-row">
+          <span class="settings-label">TAGS</span>
+          <span class="settings-value mono" id="peer-details-tags" hidden=""></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">★ FAVORITE</span>
+          <div class="settings-control">
+            <label class="sound-toggle">
+              <input type="checkbox" id="peer-details-fav">
+              <span class="sound-track"><span class="sound-thumb"></span></span>
+              <span class="settings-value mono" id="peer-details-fav-label">OFF</span>
+            </label>
+          </div>
+        </div>
+        <div class="settings-row" id="peer-details-clip-row">
+          <span class="settings-label">📋 CLIPBOARD SYNC</span>
+          <div class="settings-control">
+            <label class="sound-toggle">
+              <input type="checkbox" id="peer-details-clip">
+              <span class="sound-track"><span class="sound-thumb"></span></span>
+              <span class="settings-value mono" id="peer-details-clip-label">OFF</span>
+            </label>
+          </div>
+        </div>
+        <p class="forget-hint mono">Olvidar borra todo lo guardado de este equipo. Si sigue en la red, vuelve a aparecer en ALL.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn reject" id="peer-details-remove">🗑 FORGET PEER</button>
+        <button class="modal-btn accept" id="peer-details-close">✓ DONE</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="add-peer-modal" hidden="">
+    <div class="modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">+</span>
+        <span class="modal-title">REGISTER PEER BY IP</span>
+      </header>
+      <div class="modal-body">
+        <p class="settings-label" style="margin-bottom:12px">Escribí la IP local del otro equipo. Tiene que tener Millennium abierto.</p>
+        <div class="settings-row">
+          <span class="settings-label">IP ADDRESS</span>
+          <input type="text" class="text-input" id="add-peer-ip" placeholder="192.168.1.42" autocomplete="off">
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">PORT</span>
+          <input type="number" class="text-input" id="add-peer-port" value="53319" min="1" max="65535">
+        </div>
+        <div class="modal-error mono" id="add-peer-error" hidden=""></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn reject" id="add-peer-cancel">✕ CANCEL</button>
+        <button class="modal-btn accept" id="add-peer-submit">▸ REGISTER</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="app-settings-modal" hidden="">
+    <div class="modal settings-modal-wide">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">⚙</span>
+        <span class="modal-title">APP SETTINGS</span>
+      </header>
+      <div class="modal-body settings-body">
+        <details class="settings-group" open="">
+          <summary>▸ APARIENCIA</summary>
+          <div class="settings-row">
+            <span class="settings-label">VISUAL FX (GRID / SCANLINE)</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-fx">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-fx-label">ON</span>
+              </label>
+            </div>
+          </div>
+        </details>
+        <details class="settings-group desktop-only">
+          <summary>▸ SYSTEM</summary>
+          <div class="settings-row">
+            <span class="settings-label">START WITH WINDOWS</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-autostart">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-autostart-label">OFF</span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">CLOSE TO TRAY</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-close-tray">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-close-tray-label">ON</span>
+              </label>
+            </div>
+          </div>
+        </details>
+        <details class="settings-group">
+          <summary>▸ UPDATES</summary>
+          <div class="settings-row updates-row">
+            <div class="updates-block">
+              <div class="updates-line">
+                <span class="settings-label updates-label">CURRENT</span>
+                <span class="settings-value mono" id="settings-update-status">v0.0.0</span>
+              </div>
+              <button class="modal-btn updates-btn" id="settings-check-update">▸ CHECK FOR UPDATE</button>
+            </div>
+            <div class="updates-block updates-action" id="settings-update-action" hidden="">
+              <div class="updates-banner mono" id="settings-update-banner"></div>
+              <button class="modal-btn updates-btn accent" id="settings-apply-update">▸ DOWNLOAD &amp; INSTALL</button>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn accept" id="app-settings-close">✓ CLOSE</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="clipboard-settings-modal" hidden="">
+    <div class="modal settings-modal-wide">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">▦</span>
+        <span class="modal-title">CLIPBOARD SETTINGS</span>
+      </header>
+      <div class="modal-body settings-body">
+        <details class="settings-group" open="">
+          <summary>▸ DOWNLOADS</summary>
+          <div class="settings-row">
+            <span class="settings-label">DOWNLOAD FOLDER</span>
+            <div class="settings-control">
+              <span class="settings-value mono" id="settings-download-dir">—</span>
+              <button class="modal-btn small" id="settings-pick-dir">▸ CHANGE</button>
+            </div>
+          </div>
+        </details>
+        <details class="settings-group desktop-only" open="">
+          <summary>▸ TRANSFERS &amp; NOTIFICATIONS</summary>
+          <div class="settings-row">
+            <span class="settings-label">AUTO-ACCEPT FROM FAVORITES</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-auto-accept">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-auto-accept-label">OFF</span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">DESKTOP NOTIFICATIONS</span>
+            <div class="settings-control">
+              <label class="sound-toggle">
+                <input type="checkbox" id="settings-notifications">
+                <span class="sound-track"><span class="sound-thumb"></span></span>
+                <span class="settings-value mono" id="settings-notifications-label">ON</span>
+              </label>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn accept" id="clipboard-settings-close">✓ CLOSE</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="log-modal" hidden="">
+    <div class="modal log-modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">≡</span>
+        <span class="modal-title">RUNTIME LOG</span>
+        <span class="mono" id="log-line-count" style="margin-left:auto;font-size:10px;opacity:0.6">0 lines</span>
+      </header>
+      <div class="modal-body log-body">
+        <pre class="log-pane mono" id="log-pane"></pre>
+      </div>
+      <div class="modal-actions log-actions">
+        <label class="sound-toggle" style="display:flex;gap:6px;align-items:center">
+          <input type="checkbox" id="log-autoscroll" checked="">
+          <span class="sound-track"><span class="sound-thumb"></span></span>
+          <span class="mono" style="font-size:10px">AUTOSCROLL</span>
+        </label>
+        <button class="modal-btn small" id="log-copy">▸ COPY ALL</button>
+        <button class="modal-btn small" id="log-export">▸ EXPORT .TXT</button>
+        <button class="modal-btn small" id="log-clear">⌫ CLEAR</button>
+        <button class="modal-btn accept" id="log-close">✓ CLOSE</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="qr-modal" hidden="">
+    <div class="modal qr-modal">
+      <div class="card-corners">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <header class="modal-head">
+        <span class="modal-glyph">▣</span>
+        <span class="modal-title">QR PAIRING</span>
+      </header>
+      <div class="qr-tabs">
+        <button class="qr-tab active" data-qr-tab="show">SHOW MY QR</button>
+        <button class="qr-tab" data-qr-tab="add">ADD FROM QR</button>
+      </div>
+      <div class="modal-body">
+        <div id="qr-pane-show" class="qr-pane">
+          <div class="qr-canvas" id="qr-canvas"></div>
+          <p class="qr-hint mono">Escaneá este código desde otro equipo con Millennium para vincularlo.</p>
+          <div class="settings-row settings-info">
+            <span class="settings-label">PAYLOAD</span>
+            <span class="settings-value mono" id="qr-payload" style="font-size:9px;word-break:break-all"></span>
+          </div>
+        </div>
+        <div id="qr-pane-add" class="qr-pane" hidden="">
+          <div id="qr-scan-block" hidden="" style="margin-bottom:14px">
+            <button class="modal-btn accept" id="qr-scan-btn" style="width:100%;min-height:52px;font-size:13px;letter-spacing:2px">▸ SCAN WITH CAMERA</button>
+            <p class="qr-hint mono" style="margin-top:8px">Tocá el botón y apuntá la cámara al código QR del otro equipo.</p>
+          </div>
+          <p class="qr-hint mono">O pegá acá el contenido del QR para agregar el equipo.</p>
+          <textarea class="text-input qr-paste" id="qr-paste-input" placeholder="{&quot;v&quot;:1,&quot;type&quot;:&quot;millennium-pair&quot;,...}"></textarea>
+          <div class="modal-error mono" id="qr-add-error" hidden=""></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn small" id="qr-copy-payload">▸ COPY PAYLOAD</button>
+        <button class="modal-btn accept" id="qr-add-submit" hidden="">▸ PAIR</button>
+        <button class="modal-btn accept" id="qr-close">✓ DONE</button>
+      </div>
+    </div>
+  </div>
+  <div class="app-banners" id="app-banners">
+    <div class="backend-banner" id="backend-banner" hidden="">
+      <div class="backend-banner-inner">
+        <span class="backend-banner-glyph">⚠</span>
+        <div class="backend-banner-text">
+          <div class="backend-banner-title">BACKEND ERROR</div>
+          <div class="backend-banner-msg mono" id="backend-banner-msg"></div>
+        </div>
+        <button class="backend-banner-close" id="backend-banner-close" title="Dismiss">✕</button>
+      </div>
+    </div>
+    <div class="displays-banner" id="displays-pending" hidden="" role="alert">
+      <div class="displays-banner-inner">
+        <span class="displays-banner-glyph">⏱</span>
+        <span class="mono displays-banner-text" id="displays-pending-text">—</span>
+        <span class="displays-banner-actions">
+          <button class="modal-btn small accept" type="button" id="displays-confirm">✓ CONFIRMAR</button>
+          <button class="modal-btn small reject" type="button" id="displays-revert">↩ REVERTIR AHORA</button>
+        </span>
+      </div>
+    </div>
+  </div>
+</body></html>

@@ -1,4 +1,6 @@
+invoke displays_get_settings
 invoke displays_get_snapshot
+invoke displays_list_scenes
 invoke get_local_info
 invoke get_settings
 invoke list_peers
@@ -11,6 +13,7 @@ listen clipboard-received
 listen displays-audio
 listen displays-changed
 listen displays-confirmation
+listen displays-scenes-changed
 listen file-completed
 listen incoming-files-approved
 listen incoming-files-request

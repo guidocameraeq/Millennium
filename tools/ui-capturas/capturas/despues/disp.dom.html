@@ -195,14 +195,14 @@
           <span class="modal-title">DISPLAYS</span>
         </header>
         <nav class="displays-tabs" id="displays-tabs" role="tablist">
-          <button class="displays-tab is-active" type="button" data-tab="list" role="tab">LISTA</button>
-          <button class="displays-tab" type="button" data-tab="profiles" role="tab">PERFILES</button>
-          <button class="displays-tab" type="button" data-tab="settings" role="tab">AJUSTES</button>
+          <button class="displays-tab is-active" type="button" data-tab="scenes" role="tab">ESCENAS</button>
+          <button class="displays-tab" type="button" data-tab="list" role="tab">LISTA</button>
           <button class="displays-tab" type="button" data-tab="canvas" role="tab">LIENZO</button>
+          <button class="displays-tab" type="button" data-tab="settings" role="tab">AJUSTES</button>
         </nav>
         <div class="modal-body">
           <p class="modal-error" id="displays-error" hidden=""></p>
-          <div class="displays-pane" data-pane="list">
+          <div class="displays-pane" data-pane="list" hidden="">
             <p class="mono displays-mock-warning" id="displays-mock-warning" hidden="">
               ⚠ DATOS DE PRUEBA — estos monitores son falsos (MONARCH_FORCE_MOCK_BACKEND)
             </p>
@@ -237,20 +237,110 @@
       </div></li></ul>
             <p class="mono displays-empty" id="displays-empty" hidden="">Sin monitores para mostrar.</p>
           </div>
-          <div class="displays-pane" data-pane="profiles" hidden="">
-            <div class="displays-profile-save">
-              <input class="displays-profile-name" id="displays-profile-name" type="text" maxlength="60" placeholder="Nombre del perfil…" autocomplete="off" spellcheck="false">
-              <button class="modal-btn small accept" type="button" id="displays-save-profile">＋ GUARDAR EL ACTUAL</button>
+          <div class="displays-pane" data-pane="scenes">
+            <div class="scenes-view" id="scenes-list-view">
+              <div class="scenes-top">
+                <div>
+                  <h2 class="scenes-title">ESCENAS</h2>
+                  <p class="scenes-sub mono">Cada escena es una forma de tener tus pantallas.</p>
+                </div>
+                <button class="modal-btn small accept" type="button" id="scenes-new">＋ NUEVA ESCENA</button>
+              </div>
+              <div class="scenes-inline" id="scenes-chooser" hidden=""></div>
+              <p class="mono scenes-reason" id="scenes-block-reason" hidden=""></p>
+              <ul class="scenes-list" id="scenes-list"><li class="scene-card is-current" data-name="Trabajo">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">💼</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i class="off" title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Trabajo</span><span class="scene-badge">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor izquierdo, Monitor central · Apaga: LG TV OLED · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 Parlantes</span><span class="scene-chip">⌨ Ctrl+Alt+1</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button" disabled="">PUESTA</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir" disabled="">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Jugar en la TV">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🎮</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 21px; top: 18px; width: 44px; height: 25px;"></i><i class="off" title="Monitor central" style="left: 6px; top: 10px; width: 59px; height: 33px;"></i><i class="pri" title="LG TV OLED" style="left: 65px; top: 10px; width: 89px; height: 50px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Jugar en la TV</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: LG TV OLED · Apaga: Monitor izquierdo, Monitor central · Principal: LG TV OLED</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 TV HDMI</span><span class="scene-chip">⌨ Ctrl+Alt+2</span><span class="scene-chip">🎬 Al entrar: 🎮 Big Picture · 🔊 Volumen 40% · ⏳ Esperar 5 s · 🌈 HDR LG TV OLED: prender</span><span class="scene-chip">🎬 Al salir: ⏹ Cerrar Big Picture · ✕ Cerrar steam.exe · 🌈 HDR LG TV OLED: apagar</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Película">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🍿</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Película</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor central, LG TV OLED · Apaga: Monitor izquierdo · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 TV HDMI</span><span class="scene-chip">🎬 Al entrar: 🌐 Chrome Casa → netflix.com</span><span class="scene-chip good">⏻ arranca con Windows</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Solo central">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🖥️</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i class="off" title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Solo central</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor central · Apaga: Monitor izquierdo, LG TV OLED · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 Audio: no toca</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar" disabled="">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li></ul>
+              <p class="mono displays-empty" id="scenes-empty" hidden="">Todavía no hay escenas. ＋ NUEVA ESCENA arma la primera.</p>
+              <p class="mono scenes-note">La app reconoce qué escena coincide con cómo están tus pantallas, aunque las hayas puesto a mano.</p>
             </div>
-            <div class="displays-confirm-banner" id="displays-profile-confirm" hidden="">
-              <span class="mono displays-confirm-text" id="displays-profile-confirm-text">—</span>
-              <span class="displays-confirm-actions">
-                <button class="modal-btn small reject" type="button" id="displays-profile-confirm-yes">SÍ</button>
-                <button class="modal-btn small" type="button" id="displays-profile-confirm-no">NO</button>
-              </span>
-            </div>
-            <ul class="displays-profiles-list" id="displays-profiles-list"></ul>
-            <p class="mono displays-empty" id="displays-profiles-empty" hidden="">Todavía no guardaste ningún perfil.</p>
+            <div class="scenes-editor" id="scenes-editor-view" hidden=""></div>
           </div>
           <div class="displays-pane" data-pane="settings" hidden="">
             <div class="displays-setting">
@@ -273,7 +363,7 @@
             </div>
             <div class="displays-setting">
               <label class="displays-setting-label">Atajos de teclado por perfil</label>
-              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por perfil en la pestaña PERFILES. Apagado, ninguno funciona.</p>
+              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por escena en la pestaña ESCENAS. Apagado, ninguno funciona.</p>
               <div class="displays-setting-row">
                 <label class="sound-toggle">
                   <input type="checkbox" id="displays-shortcuts-enabled">
