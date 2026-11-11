@@ -247,7 +247,7 @@ fn una_accion_de_una_version_mas_nueva_se_lee_como_desconocida() {
         "entrada_v2": [
             {"tipo":"apagar_la_pc","cuando":"ya"},
             {"tipo":"volumen","nivel":30},
-            {"tipo":"hdr","pantalla":"1:2:3","prender":true}
+            {"tipo":"fondo_de_pantalla","ruta":"c:/x.png"}
         ],
         "salida_v2": []
     }"#;
@@ -422,4 +422,86 @@ fn la_version_de_hoy_abre_un_archivo_con_cerrar_y_esperar() {
         leido.settings.profile_actions["Jugar"].entrada,
         vec![hoy::Accion::Volumen { nivel: 20 }]
     );
+}
+
+// ── Encargo 07 (03b del spec): HDR ──────────────────────────────────────────────────
+
+#[test]
+fn hdr_se_lee_y_se_escribe_con_el_tag_del_contrato() {
+    let hdr: ActionV2 = serde_json::from_str(
+        r#"{"tipo":"hdr","pantalla":"81234:4357:16045690984833335023","prender":true}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        hdr,
+        ActionV2::Hdr {
+            pantalla: "81234:4357:16045690984833335023".to_string(),
+            prender: true,
+        }
+    );
+    assert_eq!(
+        serde_json::to_value(&hdr).unwrap(),
+        serde_json::json!({"tipo": "hdr", "pantalla": "81234:4357:16045690984833335023", "prender": true})
+    );
+}
+
+#[test]
+fn un_hdr_con_la_pantalla_rara_no_rompe_la_lectura_del_archivo() {
+    // La pantalla viaja como texto: un id tocado a mano se lee igual y lo rechaza quien lo corre,
+    // nunca la lectura de displays.json entera.
+    let acciones: PerfilAcciones = serde_json::from_str(
+        r#"{"entrada_v2":[{"tipo":"hdr","pantalla":"basura","prender":false}]}"#,
+    )
+    .expect("un id raro adentro de una acción no puede volver corrupto el archivo");
+    assert_eq!(
+        acciones.entrada_v2,
+        Some(vec![ActionV2::Hdr {
+            pantalla: "basura".to_string(),
+            prender: false,
+        }])
+    );
+}
+
+#[test]
+fn hdr_vive_en_v2_y_no_en_las_listas_viejas() {
+    let hdr = ActionV2::Hdr {
+        pantalla: "1:2:3".to_string(),
+        prender: true,
+    };
+    assert_eq!(hdr.a_accion(), None);
+    let acciones = PerfilAcciones::desde_v2(vec![hdr.clone(), ActionV2::Volumen { nivel: 40 }], vec![hdr]);
+    assert_eq!(acciones.entrada, vec![Accion::Volumen { nivel: 40 }]);
+    assert!(acciones.salida.is_empty());
+    assert_eq!(acciones.entrada_v2.as_ref().map(Vec::len), Some(2));
+    assert_eq!(acciones.salida_v2.as_ref().map(Vec::len), Some(1));
+    assert!(!acciones.esta_vacia(), "una escena con solo HDR tiene acciones");
+}
+
+#[test]
+fn la_version_de_hoy_abre_un_archivo_con_hdr() {
+    let mut config = AppConfig::default();
+    config.settings.profile_actions.insert(
+        "Cine".to_string(),
+        PerfilAcciones::desde_v2(
+            vec![
+                ActionV2::Hdr {
+                    pantalla: "1:2:3".to_string(),
+                    prender: true,
+                },
+                ActionV2::Volumen { nivel: 20 },
+            ],
+            vec![ActionV2::Hdr {
+                pantalla: "1:2:3".to_string(),
+                prender: false,
+            }],
+        ),
+    );
+    let json = serde_json::to_vec_pretty(&config).unwrap();
+    let leido: hoy::AppConfig = serde_json::from_slice(&json)
+        .expect("la versión de hoy tiene que abrir el archivo sin tratarlo de corrupto");
+    assert_eq!(
+        leido.settings.profile_actions["Cine"].entrada,
+        vec![hoy::Accion::Volumen { nivel: 20 }]
+    );
+    assert!(leido.settings.profile_actions["Cine"].salida.is_empty());
 }

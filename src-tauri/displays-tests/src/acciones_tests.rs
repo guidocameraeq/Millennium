@@ -210,3 +210,55 @@ fn confirm_avisa_antes_de_encolar_y_fija_la_escena_antes() {
     assert!(ciclo.contains("salida_completa()") && ciclo.contains("entrada_completa()"));
     assert!(!ciclo.contains(".salida.clone()") && !ciclo.contains(".entrada.clone()"));
 }
+
+// ── Encargo 07 (03b del spec): HDR prender/apagar ───────────────────────────────────
+
+#[test]
+fn hdr_ahora_se_guarda_con_el_id_de_la_pantalla() {
+    let lista = guardar(serde_json::json!([
+        {"tipo": "hdr", "pantalla": " 81234:4357:16045690984833335023 ", "prender": true},
+        {"tipo": "hdr", "pantalla": "1:2:none", "prender": false}
+    ]))
+    .unwrap();
+    assert_eq!(
+        lista,
+        vec![
+            ActionV2::Hdr {
+                pantalla: "81234:4357:16045690984833335023".to_string(),
+                prender: true,
+            },
+            ActionV2::Hdr {
+                pantalla: "1:2:none".to_string(),
+                prender: false,
+            },
+        ],
+        "el id se guarda sin espacios, tal cual lo arma format_display_id"
+    );
+}
+
+#[test]
+fn hdr_con_un_id_mal_formado_da_el_error_de_parse_display_id() {
+    for malo in ["", "basura", "1:2", "1:2:3:4", "a:2:3"] {
+        let esperado = crate::displays::ids::parse_display_id(malo).unwrap_err();
+        assert_eq!(
+            guardar(serde_json::json!([{"tipo": "hdr", "pantalla": malo, "prender": true}]))
+                .unwrap_err(),
+            esperado,
+            "con {malo:?}"
+        );
+    }
+}
+
+#[test]
+fn hdr_vuelve_igual_a_la_pantalla() {
+    let datos = datos_de_borrador(&borrador_con(serde_json::json!([
+        {"tipo": "hdr", "pantalla": "1:2:3", "prender": true}
+    ])))
+    .unwrap();
+    let salida =
+        serde_json::to_value(datos.entrada.iter().map(accion_a_dto).collect::<Vec<_>>()).unwrap();
+    assert_eq!(
+        salida,
+        serde_json::json!([{"tipo": "hdr", "pantalla": "1:2:3", "prender": true}])
+    );
+}

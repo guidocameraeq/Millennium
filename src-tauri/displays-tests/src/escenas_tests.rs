@@ -127,12 +127,8 @@ fn los_errores_del_borrador_son_para_guido() {
         con(&|v| v["entradaV2"][0]["destino"] = "   ".into()),
         "falta qué abrir"
     );
-    // Cerrar y Esperar ya se guardan (encargo 03): su validación está en `acciones_tests`.
-    assert_eq!(
-        con(&|v| v["salidaV2"] =
-            serde_json::json!([{"tipo": "hdr", "pantalla": texto_id(1), "prender": true}])),
-        "esta versión todavía no sabe guardar acciones hdr"
-    );
+    // Cerrar, Esperar (encargo 03) y HDR (encargo 07) ya se guardan: su validación está en
+    // `acciones_tests`.
 }
 
 #[test]
