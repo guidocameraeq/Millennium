@@ -782,7 +782,6 @@ where
     /// Lo mismo, para los que escriben escenas: durante una PRUEBA el texto es el de Guido
     /// (`PRUEBA_PENDIENTE`); durante un cambio común, el de siempre.
     fn ensure_scenes_writable(&self) -> Result<(), ManagerError> {
-        if true { return Ok(()); }
         match &self.pending_confirmation {
             None => Ok(()),
             Some(pending) if pending.is_test => {
@@ -852,6 +851,9 @@ fn rename_in_config(config: &mut AppConfig, from: &str, to: &str) {
         profile.name = to.to_string();
     }
     let settings = &mut config.settings;
+    if let Some(value) = settings.profile_shortcuts.remove(from) {
+        settings.profile_shortcuts.insert(to.to_string(), value);
+    }
     if let Some(value) = settings.profile_audio.remove(from) {
         settings.profile_audio.insert(to.to_string(), value);
     }
