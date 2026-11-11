@@ -471,6 +471,10 @@ where
             // TAL CUAL. Si acá se pusiera `BTreeMap::new()`, cada guardado de
             // ajustes/atajos/audio borraría en silencio TODAS las escenas.
             profile_actions: settings.profile_actions,
+            // TRAMPA #1 también para el módulo escenas: el emoji por perfil se copia
+            // TAL CUAL. Con `BTreeMap::new()`, cada guardado de ajustes borraría en
+            // silencio todos los emojis.
+            profile_icons: settings.profile_icons,
         };
         self.persist_config()
     }
@@ -1994,6 +1998,7 @@ mod tests {
                     destino: "steam://close/bigpicture".to_string(),
                     args: vec![],
                 }],
+                ..Default::default()
             },
         );
         manager.update_settings(settings).unwrap();
@@ -2055,6 +2060,7 @@ mod tests {
                     args: vec!["--profile-directory=Default".to_string()],
                 }],
                 salida: vec![],
+                ..Default::default()
             },
         );
         let json = serde_json::to_string(&config).unwrap();

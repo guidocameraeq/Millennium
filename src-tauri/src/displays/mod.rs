@@ -1521,7 +1521,16 @@ mod estado {
                 } else {
                     ajustes
                         .profile_actions
-                        .insert(nombre.to_string(), PerfilAcciones { entrada, salida });
+                        .insert(
+                            nombre.to_string(),
+                            // `..Default`: sin `_v2`. Esta vía vieja reemplaza TODO, y una
+                            // lista `_v2` que quedara atrás pisaría lo que se acaba de asignar.
+                            PerfilAcciones {
+                                entrada,
+                                salida,
+                                ..Default::default()
+                            },
+                        );
                 }
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }

@@ -127,15 +127,116 @@ pub enum Accion {
     Volumen { nivel: u8 },
 }
 
+/// Una acción de la lista `_v2` de un perfil-escena (módulo escenas, encargo 01).
+///
+/// Vive APARTE de `Accion` a propósito: si las acciones nuevas entraran en el enum
+/// de hoy, una versión vieja que lea un `displays.json` con una de ellas trataría
+/// TODO el archivo como corrupto y arrancaría vacía. Por eso `Accion` no cambia y
+/// las listas viejas se siguen escribiendo, solo con Lanzar y Volumen.
+///
+/// `Desconocida` (`#[serde(other)]`) es una acción de una versión más nueva que
+/// esta no conoce: se lee sin error (ignora sus campos) y se pierde al guardar.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "tipo", rename_all = "snake_case")]
+pub enum ActionV2 {
+    /// Igual que `Accion::Lanzar` más `etiqueta`: el texto que muestra el chip.
+    Lanzar {
+        destino: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        etiqueta: Option<String>,
+    },
+    Volumen {
+        nivel: u8,
+    },
+    #[serde(other)]
+    Desconocida,
+}
+
+impl ActionV2 {
+    /// La versión de hoy de esta acción, o `None` si `Accion` no la puede
+    /// representar (las que se pierden en las listas viejas).
+    pub fn a_accion(&self) -> Option<Accion> {
+        match self {
+            Self::Lanzar { destino, args, .. } => Some(Accion::Lanzar {
+                destino: destino.clone(),
+                args: args.clone(),
+            }),
+            Self::Volumen { nivel } => Some(Accion::Volumen { nivel: *nivel }),
+            Self::Desconocida => None,
+        }
+    }
+}
+
+impl From<&Accion> for ActionV2 {
+    fn from(accion: &Accion) -> Self {
+        match accion {
+            Accion::Lanzar { destino, args } => Self::Lanzar {
+                destino: destino.clone(),
+                args: args.clone(),
+                etiqueta: None,
+            },
+            Accion::Volumen { nivel } => Self::Volumen { nivel: *nivel },
+        }
+    }
+}
+
 /// Las acciones de un perfil-escena (Displays v2, Fase 4): las de ENTRADA corren
 /// al aplicar/confirmar el perfil; las de SALIDA corren cuando se pasa a OTRO
 /// perfil (modelo "ida y vuelta"). Ambas listas vacías = perfil sin acciones,
 /// idéntico a como se comportaba antes de la Fase 4.
+///
+/// `entrada_v2`/`salida_v2` (módulo escenas): la lista COMPLETA con todos los
+/// tipos. Solo existen en las escenas que se guardaron con la versión nueva
+/// (`None` = escena de hoy, no se escribe la clave). Quien lee usa `_v2` si
+/// existe; si no, las viejas. Al guardar con `desde_v2` se escriben las dos.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PerfilAcciones {
     pub entrada: Vec<Accion>,
     pub salida: Vec<Accion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrada_v2: Option<Vec<ActionV2>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salida_v2: Option<Vec<ActionV2>>,
+}
+
+impl PerfilAcciones {
+    /// Escritura doble: la lista completa en `_v2` y las viejas SOLO con
+    /// Lanzar y Volumen (lo único que `Accion` sabe representar).
+    pub fn desde_v2(entrada: Vec<ActionV2>, salida: Vec<ActionV2>) -> Self {
+        Self {
+            entrada: entrada.iter().filter_map(ActionV2::a_accion).collect(),
+            salida: salida.iter().filter_map(ActionV2::a_accion).collect(),
+            entrada_v2: Some(entrada),
+            salida_v2: Some(salida),
+        }
+    }
+
+    /// Las dos listas vacías (en todas sus formas) = perfil sin acciones.
+    pub fn esta_vacia(&self) -> bool {
+        self.entrada.is_empty()
+            && self.salida.is_empty()
+            && self.entrada_v2.as_ref().map_or(true, Vec::is_empty)
+            && self.salida_v2.as_ref().map_or(true, Vec::is_empty)
+    }
+
+    /// La lista de entrada completa: `_v2` si existe; si no, las viejas convertidas.
+    pub fn entrada_completa(&self) -> Vec<ActionV2> {
+        match &self.entrada_v2 {
+            Some(lista) => lista.clone(),
+            None => self.entrada.iter().map(ActionV2::from).collect(),
+        }
+    }
+
+    /// Ídem `entrada_completa` para la salida.
+    pub fn salida_completa(&self) -> Vec<ActionV2> {
+        match &self.salida_v2 {
+            Some(lista) => lista.clone(),
+            None => self.salida.iter().map(ActionV2::from).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -160,6 +261,10 @@ pub struct AppSettings {
     /// sin acciones (como antes de la Fase 4). Nace vacío en stores viejos por el
     /// `#[serde(default)]` a nivel struct.
     pub profile_actions: BTreeMap<String, PerfilAcciones>,
+    /// Emoji por perfil-escena (módulo escenas), keyed por **nombre** de perfil —
+    /// mismo patrón que `profile_audio`. Sin entrada = sin ícono. Nace vacío en
+    /// stores viejos por el `#[serde(default)]` a nivel struct.
+    pub profile_icons: BTreeMap<String, String>,
 }
 
 impl Default for AppSettings {
@@ -175,6 +280,7 @@ impl Default for AppSettings {
             display_toggle_shortcuts: BTreeMap::new(),
             profile_audio: BTreeMap::new(),
             profile_actions: BTreeMap::new(),
+            profile_icons: BTreeMap::new(),
         }
     }
 }
