@@ -120,6 +120,16 @@ fn config_nuevo() -> AppConfig {
         .settings
         .profile_icons
         .insert("Jugar".to_string(), "🎮".to_string());
+    // Encargo 02: el mapa de modos tampoco puede hacer que la versión de hoy trate el archivo
+    // de corrupto.
+    config.settings.display_modes.insert(
+        "0000000000000065:LG TV".to_string(),
+        vec![monarch::model::DisplayMode {
+            width: 3840,
+            height: 2160,
+            refresh_mhz: 60_000,
+        }],
+    );
     config.settings.profile_actions.insert(
         "Jugar".to_string(),
         PerfilAcciones::desde_v2(

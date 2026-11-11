@@ -89,6 +89,29 @@ pub struct Profile {
     pub layout: Layout,
 }
 
+/// Un modo que una pantalla le dijo a Windows que acepta (módulo escenas, encargo 02): lo
+/// que ofrece el selector de resolución del editor. En `displays.json` va como
+/// `{width, height, refreshMhz}` (la forma del contrato). La frecuencia 0 nunca se guarda.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayMode {
+    pub width: u32,
+    pub height: u32,
+    pub refresh_mhz: u32,
+}
+
+/// La lista tal como se guarda: sin modos con ancho, alto o frecuencia 0, sin repetidos y
+/// de mayor a menor (ancho, alto, frecuencia).
+pub fn normalize_display_modes(modes: Vec<DisplayMode>) -> Vec<DisplayMode> {
+    let mut modes: Vec<DisplayMode> = modes
+        .into_iter()
+        .filter(|mode| mode.width > 0 && mode.height > 0 && mode.refresh_mhz > 0)
+        .collect();
+    modes.sort_by(|left, right| right.cmp(left));
+    modes.dedup();
+    modes
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DisplayFingerprint {
     pub display_id: DisplayId,
@@ -274,6 +297,12 @@ pub struct AppSettings {
     /// mismo patrón que `profile_audio`. Sin entrada = sin ícono. Nace vacío en
     /// stores viejos por el `#[serde(default)]` a nivel struct.
     pub profile_icons: BTreeMap<String, String>,
+    /// Modos que reportó cada pantalla la última vez que estuvo prendida (módulo escenas,
+    /// encargo 02), keyed por la **huella EDID** (`display_modes_key`, la misma de
+    /// `display_fingerprints`), no por nombre de perfil. Solo se suma o reemplaza con una
+    /// lista no vacía (`remember_display_modes`): nunca se vacía, así la TV apagada conserva
+    /// los suyos. Nace vacío en stores viejos por el `#[serde(default)]` a nivel struct.
+    pub display_modes: BTreeMap<String, Vec<DisplayMode>>,
 }
 
 impl Default for AppSettings {
@@ -290,6 +319,7 @@ impl Default for AppSettings {
             profile_audio: BTreeMap::new(),
             profile_actions: BTreeMap::new(),
             profile_icons: BTreeMap::new(),
+            display_modes: BTreeMap::new(),
         }
     }
 }
