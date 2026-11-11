@@ -64,6 +64,36 @@ mod log_format_tests;
 #[cfg(test)]
 mod displays_view_tests;
 
+// El checkpoint crudo de displays.json (encargo 01 de escenas, criterio 8).
+#[cfg(test)]
+mod store_tests;
+
+#[cfg(test)]
+mod escenas_tests;
+
+// Resoluciones por pantalla (encargo 02 de escenas): de un DEVMODE a un modo y qué lista
+// ve cada pantalla del selector.
+#[cfg(test)]
+mod modos_tests;
+
+// Acciones nuevas, cola y listas de Steam/Chrome (encargo 03 de escenas).
+#[cfg(test)]
+mod acciones_tests;
+
+#[cfg(test)]
+mod cola_tests;
+
+#[cfg(test)]
+mod listas_tests;
+
+// La puesta ahora (encargo 04 de escenas): qué escena coincide con las pantallas.
+#[cfg(test)]
+mod puesta_tests;
+
+// La acción HDR (encargo 07 de escenas): qué pantalla, si soporta, pedir y re-leer.
+#[cfg(test)]
+mod hdr_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -74,6 +104,28 @@ pub mod displays {
 
     #[path = "../../../src/displays/ids.rs"]
     pub mod ids;
+
+    // Las conversiones de escenas (encargo 01): puras, sin `windows` ni `tauri`.
+    #[path = "../../../src/displays/cola.rs"]
+    pub mod cola;
+
+    #[path = "../../../src/displays/escenas.rs"]
+    pub mod escenas;
+
+    // La lógica de la acción HDR (encargo 07): pura; las llamadas de Windows viven en acciones.rs.
+    #[path = "../../../src/displays/hdr.rs"]
+    pub mod hdr;
+
+    // Las reglas puras de los modos de pantalla (encargo 02): sin `windows` ni `tauri`.
+    // Las listas de Steam, Chrome y programas abiertos (encargo 03): puras, leen texto o carpetas.
+    #[path = "../../../src/displays/listas.rs"]
+    pub mod listas;
+
+    #[path = "../../../src/displays/modos.rs"]
+    pub mod modos;
+
+    #[path = "../../../src/displays/puesta.rs"]
+    pub mod puesta;
 
     #[path = "../../../src/displays/store.rs"]
     pub mod store;

@@ -47,10 +47,19 @@ mod apply;
 mod audio;
 #[cfg(target_os = "windows")]
 mod backend;
+// La cola de acciones de las escenas (encargo 03): pura, pero nombra a `monarch` (solo Windows).
+#[cfg(target_os = "windows")]
+mod cola;
 #[cfg(target_os = "windows")]
 mod enumerate;
+// La acción HDR de las escenas (encargo 07): pura; sus llamadas de Windows viven en `acciones.rs`.
+#[cfg(target_os = "windows")]
+mod hdr;
 #[cfg(target_os = "windows")]
 mod ids;
+// La puesta ahora usa `monarch` y `escenas::mismo_monitor`: solo Windows (encargo 04 de escenas).
+#[cfg(target_os = "windows")]
+pub(crate) mod puesta;
 #[cfg(target_os = "windows")]
 mod store;
 #[cfg(target_os = "windows")]
@@ -58,13 +67,54 @@ mod system_events;
 #[cfg(target_os = "windows")]
 #[allow(dead_code)] // ídem: parte del motor donante no la ejerce el toggle
 mod topology;
-// Sin `cfg(windows)` a propósito: es lo que `displays-tests` puede correr.
+// Sin `cfg(windows)` a propósito: es lo que `displays-tests` puede correr. Los tipos de
+// las escenas se nombran en cualquier plataforma; sus conversiones son solo Windows.
+mod escenas;
+// Ídem: elegir un juego de Steam, una cuenta de Chrome o un programa abierto (encargo 03).
+mod listas;
+// Ídem: los tipos del selector de resolución y sus reglas puras (encargo 02 de escenas).
+mod modos;
 mod view;
 #[cfg(target_os = "windows")]
 mod watchdog;
 #[cfg(target_os = "windows")]
 mod win32_types;
 
+pub use escenas::{SceneDraft, SceneView, ScenesResult};
+pub use listas::{ChromeProfiles, RunningProgram, SteamGame};
+pub use modos::DisplayModesView;
+
+/// Los juegos de Steam instalados para el selector de acciones. Sin Steam, lista vacía.
+/// Lee archivos: llamarla desde `spawn_blocking`.
+#[cfg(target_os = "windows")]
+pub fn listar_juegos_de_steam() -> Vec<SteamGame> {
+    acciones::carpeta_de_steam()
+        .map(|carpeta| listas::juegos_de_steam(&carpeta))
+        .unwrap_or_default()
+}
+
+/// Las cuentas de Chrome y la ruta de `chrome.exe`. Sin Chrome, `chrome_path: None` y lista vacía.
+#[cfg(target_os = "windows")]
+pub fn listar_cuentas_de_chrome() -> ChromeProfiles {
+    let chrome_path = acciones::ruta_de_chrome();
+    let profiles = match (&chrome_path, acciones::local_state_de_chrome()) {
+        (Some(_), Some(texto)) => listas::cuentas_de_chrome(&texto),
+        _ => Vec::new(),
+    };
+    ChromeProfiles {
+        chrome_path: chrome_path.map(|ruta| ruta.to_string_lossy().into_owned()),
+        profiles,
+    }
+}
+
+/// Los programas abiertos con ventana, para elegir cuál cerrar (sin la lista prohibida).
+#[cfg(target_os = "windows")]
+pub fn listar_programas_abiertos() -> Vec<RunningProgram> {
+    listas::programas_abiertos(
+        acciones::programas_con_ventana(),
+        &acciones::nombre_de_esta_app(),
+    )
+}
 pub use view::DisplayView;
 use view::mock_displays;
 // Solo los usa el camino de Windows (`views_from_topology` y `estado`).
@@ -95,6 +145,9 @@ pub struct PendingView {
     /// manda. La UI lo usa para rehidratar la cuenta regresiva si el usuario
     /// cerró y reabrió el modal en el medio.
     pub remaining_ms: u64,
+    /// `true` si la cuenta regresiva es de PROBAR un borrador (la pantalla bloquea GUARDAR,
+    /// RENOMBRAR, BORRAR, DUPLICAR y ↻ mientras dura). Falta = `false`.
+    pub is_test: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -360,6 +413,9 @@ pub const EVENTO_CONFIRMACION: &str = "displays-confirmation";
 /// asignada no está presente (TV apagada). Canal aparte del de confirmación para
 /// no ensuciar la máquina de estados del banner de auto-revert.
 pub const EVENTO_AUDIO: &str = "displays-audio";
+/// La lista de escenas cambió (guardar, renombrar, duplicar, reordenar, borrar…). El payload
+/// es `{ "kind": … }`; la pantalla vuelve a pedir `displays_list_scenes`.
+pub const EVENTO_ESCENAS: &str = "displays-scenes-changed";
 
 /// Cómo este módulo le habla al frontend, **sin conocer a Tauri**.
 ///
@@ -371,6 +427,170 @@ pub const EVENTO_AUDIO: &str = "displays-audio";
 #[cfg(target_os = "windows")]
 pub type Emisor = Box<dyn Fn(&str, serde_json::Value) + Send + Sync + 'static>;
 
+/// Le pregunta a Windows qué modos acepta cada pantalla prendida (encargo 02 de escenas).
+///
+/// Sondeado antes de escribir (doctrina "Sondar Win32", evidencia del encargo 02):
+/// `EnumDisplaySettingsExW` con `iModeNum` 0, 1, 2… sobre el nombre GDI de la FUENTE activa
+/// (`\\.\DISPLAYn`, de `DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME`) hasta que devuelve 0. Sin
+/// `EDS_RAWMODE` solo da los modos que el monitor acepta; sin `EDS_ROTATEDMODE`, en la
+/// orientación de hoy (la misma del modo de fuente que guarda el `Layout`). Una salida sin
+/// fuente activa (la TV apagada) no tiene nombre GDI ni API documentada para pedirle modos:
+/// por eso solo se leen las prendidas y las demás usan lo recordado.
+///
+/// Solo LEE: no toca la topología ni el motor (`enumerate.rs` se usa tal cual).
+#[cfg(target_os = "windows")]
+mod lectura_de_modos {
+    use std::mem::size_of;
+
+    use monarch::model::DisplayMode;
+    use monarch::ManagerError;
+    use windows::core::PCWSTR;
+    use windows::Win32::Devices::Display::{
+        DisplayConfigGetDeviceInfo, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+        DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_PATH_INFO,
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME,
+    };
+    use windows::Win32::Graphics::Gdi::{
+        EnumDisplaySettingsExW, DEVMODEW, ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
+    };
+
+    use super::modos::{modo_de_devmode, ModosLeidos};
+    use super::win32_types::luid_to_u64;
+
+    /// `wingdi.h`: el bit de `dmDisplayFlags` de un modo entrelazado.
+    const DM_INTERLACED: u32 = 0x0000_0002;
+    /// `wingdi.h`: el bit de path activo de `DISPLAYCONFIG_PATH_INFO.flags`.
+    const DISPLAYCONFIG_PATH_ACTIVE_FLAG: u32 = 0x0000_0001;
+    /// Tope de vueltas por pantalla: un driver que nunca devuelve 0 no cuelga el hilo. Una
+    /// pantalla común reporta decenas a pocos cientos (un modo por profundidad de color).
+    const TOPE_DE_MODOS: u32 = 4096;
+
+    /// Qué fuente alimenta a qué pantalla, de los paths activos: si cambia mientras se leen
+    /// los modos, `\\.\DISPLAYn` puede haber pasado a otra pantalla.
+    fn cableado(paths: &[DISPLAYCONFIG_PATH_INFO]) -> Vec<(u64, u32, u64, u32)> {
+        let mut cables: Vec<_> = paths
+            .iter()
+            .filter(|p| p.flags & DISPLAYCONFIG_PATH_ACTIVE_FLAG != 0)
+            .map(|p| {
+                (
+                    luid_to_u64(p.targetInfo.adapterId.HighPart, p.targetInfo.adapterId.LowPart),
+                    p.targetInfo.id,
+                    luid_to_u64(p.sourceInfo.adapterId.HighPart, p.sourceInfo.adapterId.LowPart),
+                    p.sourceInfo.id,
+                )
+            })
+            .collect();
+        cables.sort();
+        cables
+    }
+
+    /// Los modos de cada pantalla prendida. Una pantalla cuyo nombre GDI no se puede leer
+    /// queda afuera (sale con lo recordado); un error de la enumeración es error. Si las
+    /// pantallas cambiaron mientras se leía (p. ej. la escena de arranque se aplicó en el
+    /// medio), la lectura se descarta entera: el `WM_DISPLAYCHANGE` que sigue la repite.
+    pub fn leer() -> Result<Vec<ModosLeidos>, ManagerError> {
+        let topologia = super::enumerate::query_active_only_topology()?;
+        let leidos = leer_con(&topologia)?;
+        let despues = super::enumerate::query_active_only_topology()?;
+        if cableado(&despues.raw.paths) != cableado(&topologia.raw.paths) {
+            super::diagnostics::log("modos:descartados:cambio_las_pantallas");
+            return Ok(Vec::new());
+        }
+        Ok(leidos)
+    }
+
+    fn leer_con(
+        topologia: &super::win32_types::TopologySnapshot,
+    ) -> Result<Vec<ModosLeidos>, ManagerError> {
+        let mut leidos = Vec::new();
+        for path in &topologia.raw.paths {
+            if path.flags & DISPLAYCONFIG_PATH_ACTIVE_FLAG == 0 {
+                continue;
+            }
+            let adapter_luid = luid_to_u64(
+                path.targetInfo.adapterId.HighPart,
+                path.targetInfo.adapterId.LowPart,
+            );
+            // Se cruza por (adaptador, target) y no por índice: no depende de que la
+            // enumeración arme los dos vectores en el mismo orden.
+            let Some(pantalla) = topologia.displays.iter().find(|d| {
+                d.id.adapter_luid == adapter_luid && d.id.target_id == path.targetInfo.id
+            }) else {
+                continue;
+            };
+            let Some(nombre_gdi) = nombre_gdi_de_la_fuente(path) else {
+                continue;
+            };
+            leidos.push(ModosLeidos {
+                id: pantalla.id.clone(),
+                nombre: pantalla.friendly_name.clone(),
+                modos: modos_del_dispositivo(&nombre_gdi),
+            });
+        }
+        Ok(leidos)
+    }
+
+    fn nombre_gdi_de_la_fuente(path: &DISPLAYCONFIG_PATH_INFO) -> Option<Vec<u16>> {
+        unsafe {
+            let mut fuente = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+            fuente.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                size: size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32,
+                adapterId: path.sourceInfo.adapterId,
+                id: path.sourceInfo.id,
+            };
+            if DisplayConfigGetDeviceInfo(&mut fuente.header) != 0 {
+                return None;
+            }
+            let largo = fuente
+                .viewGdiDeviceName
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(fuente.viewGdiDeviceName.len());
+            if largo == 0 {
+                return None;
+            }
+            let mut nombre = fuente.viewGdiDeviceName[..largo].to_vec();
+            nombre.push(0);
+            Some(nombre)
+        }
+    }
+
+    /// Los modos crudos de un dispositivo GDI (`nombre` termina en 0). Sin normalizar: eso lo
+    /// hace quien los usa.
+    fn modos_del_dispositivo(nombre: &[u16]) -> Vec<DisplayMode> {
+        let mut modos = Vec::new();
+        for numero in 0..TOPE_DE_MODOS {
+            // La doc pide `dmSize` antes de llamar; `dmDriverExtra` en 0 = sin datos privados.
+            let mut devmode: DEVMODEW = unsafe { std::mem::zeroed() };
+            devmode.dmSize = size_of::<DEVMODEW>() as u16;
+            let hay = unsafe {
+                EnumDisplaySettingsExW(
+                    PCWSTR(nombre.as_ptr()),
+                    ENUM_DISPLAY_SETTINGS_MODE(numero),
+                    &mut devmode,
+                    ENUM_DISPLAY_SETTINGS_FLAGS(0),
+                )
+            };
+            if !hay.as_bool() {
+                break;
+            }
+            // `dmDisplayFlags` vive en una union: leerla es legal porque para un dispositivo
+            // de pantalla esa rama es la que llena Windows (la otra, `dmNup`, es de impresora).
+            let flags = unsafe { devmode.Anonymous2.dmDisplayFlags };
+            if let Some(modo) = modo_de_devmode(
+                devmode.dmPelsWidth,
+                devmode.dmPelsHeight,
+                devmode.dmDisplayFrequency,
+                flags & DM_INTERLACED != 0,
+            ) {
+                modos.push(modo);
+            }
+        }
+        modos
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod estado {
     use std::collections::BTreeMap;
@@ -378,18 +598,26 @@ mod estado {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use monarch::{Accion, AudioTarget, Layout, MonarchDisplayManager, PerfilAcciones, Profile};
+    use monarch::{
+        copy_name, Accion, AudioTarget, Layout, ManagerError, MonarchDisplayManager, PerfilAcciones,
+        Profile,
+    };
 
     use super::acciones;
     use super::audio;
     use super::backend::SystemDisplayBackend;
+    use super::escenas;
     use super::ids::{format_display_id, parse_display_id};
+    use super::cola;
+    use super::modos;
+    use super::puesta;
     use super::store::MillenniumConfigStore;
     use super::watchdog::{self, Desenlace};
     use super::{
-        diagnostics, mark_can_detach, ActionView, AudioView, DisplayView, DisplaysSnapshot, Emisor,
-        PendingView, PosicionView, ProfileActionsView, ProfileView, SettingsView, EVENTO_AUDIO,
-        EVENTO_CAMBIO, EVENTO_CONFIRMACION, FORCE_MOCK_ENV,
+        diagnostics, mark_can_detach, ActionView, AudioView, DisplayModesView, DisplayView,
+        DisplaysSnapshot, Emisor, PendingView, PosicionView, ProfileActionsView, ProfileView,
+        SceneDraft, SceneView, ScenesResult, SettingsView, EVENTO_AUDIO, EVENTO_CAMBIO,
+        EVENTO_CONFIRMACION, EVENTO_ESCENAS, FORCE_MOCK_ENV,
     };
 
     type Manager = MonarchDisplayManager<SystemDisplayBackend, MillenniumConfigStore>;
@@ -433,6 +661,12 @@ mod estado {
         /// sola confirmación viva a la vez, así que este slot siempre corresponde
         /// al pending vivo (o es `None`).
         escena_pendiente: Mutex<Option<String>>,
+        /// La escena que se avisó como "puesta ahora" la última vez (encargo 04): sirve para
+        /// emitir `current` solo cuando cambia, sin un poll nuevo.
+        escena_puesta: Mutex<Option<String>>,
+        /// Las acciones de las escenas corren acá, en fila y en su hilo (encargo 03): `confirm`
+        /// avisa antes de encolar y no espera a un Esperar.
+        cola: cola::Cola,
     }
 
     /// El handle que se guarda en Tauri y se clona hacia los hilos.
@@ -464,6 +698,8 @@ mod estado {
             audio_previo: Mutex::new(None),
             escena_activa: Mutex::new(None),
             escena_pendiente: Mutex::new(None),
+            escena_puesta: Mutex::new(None),
+            cola: cola::Cola::nueva(acciones::EjecutorReal, cola::RelojReal::nuevo()),
         }));
 
         // La ventana oculta cablea DOS reacciones distintas:
@@ -477,6 +713,13 @@ mod estado {
             Box::new(move || para_el_resume.al_despertar()),
             Box::new(move || para_el_cambio.al_cambiar_displays()),
         );
+
+        // Al arrancar, los modos de las pantallas prendidas. En un hilo aparte para no
+        // demorar el arranque: no hace falta para nada de lo que sigue.
+        let para_los_modos = estado.clone();
+        std::thread::spawn(move || {
+            para_los_modos.anotar_modos();
+        });
 
         Ok(estado)
     }
@@ -524,6 +767,7 @@ mod estado {
             let restante = guard.pending_confirmation_remaining()?;
             Some(PendingView {
                 remaining_ms: restante.as_millis() as u64,
+                is_test: guard.pending_is_test(),
             })
         }
 
@@ -674,10 +918,13 @@ mod estado {
             self.olvidar_audio_previo();
             // Recién ACÁ el cambio con red queda committeado ⇒ correr el ciclo de la
             // escena que estaba pendiente (SALIDA anterior + ENTRADA nueva).
-            self.confirmar_escena_pendiente();
+            // La escena queda activa ACÁ; sus acciones se encolan recién después del aviso.
+            let acciones = self.confirmar_escena_pendiente();
             diagnostics::log("confirm:el_usuario_confirmo");
             self.avisar_confirmacion(serde_json::json!({ "kind": "confirmed" }));
             self.avisar_cambio();
+            self.recalcular_puesta();
+            self.0.cola.encolar(acciones);
             self.snapshot()
         }
 
@@ -698,6 +945,7 @@ mod estado {
                 "reason": "manual",
             }));
             self.avisar_cambio();
+            self.recalcular_puesta();
             self.snapshot()
         }
 
@@ -787,12 +1035,19 @@ mod estado {
         /// Guarda el layout actual con un nombre. Si el nombre ya existe, el
         /// manager lo pisa; la confirmación de "vas a pisar 'X'" es del frontend,
         /// que es donde el usuario ve la lista. Devuelve la lista actualizada.
-        pub fn guardar_perfil(&self, nombre: &str) -> Result<Vec<ProfileView>, String> {
+        pub fn guardar_perfil(
+            &self,
+            nombre: &str,
+            reemplazar: bool,
+        ) -> Result<Vec<ProfileView>, String> {
             {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
-                guard.save_profile(nombre).map_err(|e| e.to_string())?;
+                guard
+                    .save_profile(nombre, reemplazar)
+                    .map_err(mensaje_de)?;
             }
             diagnostics::log("perfil:guardado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -807,7 +1062,7 @@ mod estado {
         pub fn borrar_perfil(&self, nombre: &str) -> Result<Vec<ProfileView>, String> {
             {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
-                guard.delete_profile(nombre).map_err(|e| e.to_string())?;
+                guard.delete_profile(nombre).map_err(mensaje_de)?;
                 let mut ajustes = guard.settings().clone();
                 let mut cambio = ajustes.profile_shortcuts.remove(nombre).is_some();
                 // Limpiar también la salida de audio del perfil borrado, para no
@@ -817,6 +1072,10 @@ mod estado {
                 }
                 // Ídem las acciones (Fase 4): no dejar escena huérfana.
                 if ajustes.profile_actions.remove(nombre).is_some() {
+                    cambio = true;
+                }
+                // Ídem el emoji (módulo escenas).
+                if ajustes.profile_icons.remove(nombre).is_some() {
                     cambio = true;
                 }
                 if ajustes.startup_profile_name.as_deref() == Some(nombre) {
@@ -831,6 +1090,7 @@ mod estado {
             // estado (fuera del lock del manager: toca otros mutex).
             self.olvidar_escena_si_es(nombre);
             diagnostics::log("perfil:borrado");
+            self.avisar_escenas("deleted");
             self.listar_perfiles()
         }
 
@@ -865,6 +1125,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("atajo:asignado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -878,6 +1139,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("atajo:limpiado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -888,12 +1150,13 @@ mod estado {
         /// el layout actual): en ese caso no hay confirmación pendiente y no hay
         /// nada que revertir ni perseguir.
         pub fn cargar_perfil(&self, nombre: &str) -> Result<DisplaysSnapshot, String> {
-            let plazo = {
+            let (plazo, deseado) = {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                let deseado = layout_del_perfil(&guard, nombre);
                 guard.apply_profile(nombre).map_err(|e| e.to_string())?;
                 // Si `apply_profile` aplicó de verdad, dejó una confirmación
                 // pendiente; si el perfil ya era el layout actual, no.
-                guard.pending_confirmation_remaining()
+                (guard.pending_confirmation_remaining(), deseado)
             };
 
             match plazo {
@@ -917,7 +1180,8 @@ mod estado {
                     // Con red: las acciones NO corren todavía. Se dejan pendientes y
                     // corren en `confirm` (si el cambio se auto-revierte, no corren).
                     self.marcar_escena_pendiente(nombre);
-                    self.aplicar_con_red(plazo)
+                    let avisos = self.avisos_de_resolucion(deseado.as_ref());
+                    self.aplicar_con_red_avisando(plazo, avisos)
                 }
             }
         }
@@ -941,8 +1205,10 @@ mod estado {
             // lo deja Some si `get_layout` rebota, y un pending sin watchdog congela
             // TODO apply futuro (ensure_no_pending_confirmation). Se cae a la red
             // como último recurso para que el pending se resuelva.
+            let deseado;
             let red_de_emergencia = {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                deseado = layout_del_perfil(&guard, nombre);
                 guard.apply_profile(nombre).map_err(|e| e.to_string())?;
                 if !guard.has_pending_confirmation() {
                     // No-op: el perfil ya era el layout actual. Nada que commitear.
@@ -974,6 +1240,9 @@ mod estado {
                     // Commit inmediato ⇒ el ciclo de escena corre ACÁ.
                     self.correr_ciclo_de_escena(nombre);
                     diagnostics::log("perfil:aplicado_directo");
+                    // Sin cartel (atajo / arranque): si Windows puso otra resolución, el
+                    // aviso queda en el log (`avisos_de_resolucion` lo escribe).
+                    self.avisos_de_resolucion(deseado.as_ref());
                     self.avisar_cambio();
                     Ok(())
                 }
@@ -986,7 +1255,320 @@ mod estado {
                     // Cae a la red ⇒ el video puede auto-revertirse: las acciones
                     // quedan pendientes y corren en `confirm`, no acá.
                     self.marcar_escena_pendiente(nombre);
-                    self.aplicar_con_red(plazo).map(|_| ())
+                    let avisos = self.avisos_de_resolucion(deseado.as_ref());
+                    self.aplicar_con_red_avisando(plazo, avisos).map(|_| ())
+                }
+            }
+        }
+
+        // --- escenas en papel (módulo escenas, encargo 01) -------------------
+
+        /// Lo que hace falta para armar vistas, leído de una vez con el lock corto.
+        fn insumos_de_escenas(&self) -> Result<InsumosEscenas, String> {
+            let guard = self.0.manager.lock().map_err(|_| envenenado())?;
+            Ok(InsumosEscenas {
+                perfiles: guard.list_profiles(),
+                ajustes: guard.settings().clone(),
+                huellas: guard.config().display_fingerprints.clone(),
+                // Solo los borradores la necesitan: la lista y las respuestas de guardado no
+                // pueden fallar porque Windows rebote justo después de un cambio.
+                actual: guard.get_layout().map_err(|e| e.to_string()),
+                infos: guard.list_displays().unwrap_or_default(),
+            })
+        }
+
+        /// La lista nueva de la pestaña ESCENAS, en el orden de Guido.
+        pub fn listar_escenas(&self) -> Result<Vec<SceneView>, String> {
+            let i = self.insumos_de_escenas()?;
+            // El sello PUESTA AHORA sale de comparar con las pantallas, no de la escena activa.
+            let puesta = self.calcular_puesta(&i.perfiles);
+            if let Ok(mut slot) = self.0.escena_puesta.lock() {
+                *slot = puesta.clone();
+            }
+            Ok(i.perfiles
+                .iter()
+                .map(|p| {
+                    escenas::vista_de_escena(p, &i.ajustes, &i.huellas, &i.infos, puesta.as_deref())
+                })
+                .collect())
+        }
+
+        /// Qué escena de `perfiles` coincide con las pantallas ahora (a lo sumo una). Lee el
+        /// layout con el lock del manager corto y compara afuera. Si Windows no lo da, nada.
+        fn calcular_puesta(&self, perfiles: &[Profile]) -> Option<String> {
+            let actual = {
+                let guard = self.0.manager.lock().ok()?;
+                guard.get_layout().ok()?
+            };
+            let activa = self.0.escena_activa.lock().ok().and_then(|g| g.clone());
+            puesta::escena_puesta(perfiles, &actual, activa.as_deref())
+        }
+
+        /// Vuelve a mirar cuál es la puesta ahora y, si cambió desde el último aviso, emite
+        /// `displays-scenes-changed` con `kind: "current"`. Se llama donde ya hay un cambio de
+        /// pantallas (confirmar, revertir, `WM_DISPLAYCHANGE`): no hay un poll nuevo.
+        fn recalcular_puesta(&self) {
+            let perfiles = match self.0.manager.lock() {
+                Ok(guard) => guard.list_profiles(),
+                Err(_) => return,
+            };
+            let nueva = self.calcular_puesta(&perfiles);
+            let cambio = match self.0.escena_puesta.lock() {
+                Ok(mut slot) if *slot != nueva => {
+                    *slot = nueva;
+                    true
+                }
+                _ => false,
+            };
+            if cambio {
+                self.avisar_escenas("current");
+            }
+        }
+
+        /// `true` si hay un cambio de pantallas esperando confirmación (la bandeja no apila otro).
+        pub fn hay_cambio_pendiente(&self) -> bool {
+            self.pendiente().is_some()
+        }
+
+        /// El clic en una escena de la bandeja: re-valida que exista (por nombre; el lugar es el
+        /// que tenía el menú) y aplica por el camino de APLICAR, con cuenta regresiva
+        /// (`cargar_perfil`), NO por el directo de los atajos. Con un cambio esperando
+        /// confirmación no apila otro. `Err` trae el aviso en palabras para el log.
+        pub fn aplicar_desde_bandeja(&self, id: &str) -> Result<DisplaysSnapshot, String> {
+            let nombres: Vec<String> = self
+                .0
+                .manager
+                .lock()
+                .map_err(|_| envenenado())?
+                .list_profiles()
+                .into_iter()
+                .map(|p| p.name)
+                .collect();
+            let nombre = puesta::escena_del_menu(id, &nombres)
+                .ok_or_else(|| "esa escena ya no existe: no se aplicó nada".to_string())?;
+            if self.hay_cambio_pendiente() {
+                return Err(format!(
+                    "hay un cambio de pantallas esperando confirmación: no se aplicó «{nombre}»"
+                ));
+            }
+            self.cargar_perfil(&nombre)
+        }
+
+        /// Las escenas para el submenú de la bandeja: nombre, emoji y si es la puesta ahora,
+        /// en el orden de Guido.
+        pub fn escenas_para_la_bandeja(&self) -> Result<Vec<(String, Option<String>, bool)>, String> {
+            Ok(self
+                .listar_escenas()?
+                .into_iter()
+                .map(|e| (e.name, e.emoji, e.is_current))
+                .collect())
+        }
+
+        /// Arma un borrador SIN tocar nada: `current`, `blank`, `scene` o `copy`.
+        pub fn borrador_de_escena(
+            &self,
+            desde: &str,
+            nombre: Option<&str>,
+        ) -> Result<SceneDraft, String> {
+            let i = self.insumos_de_escenas()?;
+            let actual = i.actual.as_ref().map_err(|e| e.clone())?;
+            match desde {
+                "current" => Ok(escenas::borrador_actual(actual, &i.huellas, &i.infos)),
+                "blank" => Ok(escenas::borrador_en_blanco(actual, &i.huellas, &i.infos)),
+                "scene" => {
+                    let perfil = buscar_escena(&i.perfiles, nombre)?;
+                    Ok(escenas::borrador_de_escena(
+                        perfil, &i.ajustes, actual, &i.huellas, &i.infos,
+                    ))
+                }
+                "copy" => {
+                    let perfil = buscar_escena(&i.perfiles, nombre)?;
+                    let copia = copy_name(&perfil.name, &i.perfiles);
+                    Ok(escenas::borrador_de_copia(
+                        perfil, &i.ajustes, actual, &i.huellas, &i.infos, copia,
+                    ))
+                }
+                _ => Err("no sé de dónde armar la escena".to_string()),
+            }
+        }
+
+        /// GUARDAR un borrador (crear o editar), en un solo guardado y sin tocar ninguna
+        /// pantalla. Si el nombre cambió es además un renombre: la escena activa/pendiente
+        /// en memoria sigue a su nombre nuevo. Registrar el atajo es cosa del comando.
+        pub fn guardar_escena(
+            &self,
+            borrador: SceneDraft,
+            original: Option<String>,
+        ) -> Result<ScenesResult, String> {
+            let datos = escenas::datos_de_borrador(&borrador)?;
+            // Antes que la resolución: una confirmación pendiente y la escena que ya no existe
+            // tienen que decir lo suyo (si no, los taparía "no reporta…").
+            let original_layout = {
+                let guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                if guard.has_pending_confirmation() {
+                    return Err(if guard.pending_is_test() {
+                        monarch::PRUEBA_PENDIENTE.to_string()
+                    } else {
+                        mensaje_de(ManagerError::ConfirmationPending)
+                    });
+                }
+                original.as_deref().map(|o| layout_del_perfil(&guard, o))
+            };
+            // Solo modos que la pantalla reportó (o "Dejar la que tenga"). Lee Windows fuera
+            // del lock; la escena original se busca por su nombre de antes de editar. Si la
+            // borraron mientras se editaba, la validación no corre: `upsert_scene` da el error.
+            if !matches!(original_layout, Some(None)) {
+                let pantallas = self.pantallas_con_modos()?;
+                modos::validar_resoluciones(
+                    &datos.layout,
+                    original_layout.flatten().as_ref(),
+                    &pantallas,
+                )?;
+            }
+            let nombre = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard
+                    .upsert_scene(original.as_deref(), datos)
+                    .map_err(mensaje_de)?
+            };
+            let renombrada = original.as_deref().is_some_and(|o| o != nombre);
+            if let Some(vieja) = original.as_deref().filter(|o| *o != nombre) {
+                self.renombrar_escena_viva(vieja, &nombre);
+            }
+            diagnostics::log("escena:guardada");
+            self.avisar_escenas(if renombrada { "renamed" } else { "saved" });
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: Some(nombre),
+                warnings: Vec::new(),
+            })
+        }
+
+        /// RENOMBRAR: mueve atajo, sonido, acciones, emoji y arranque en un solo guardado.
+        pub fn renombrar_escena(&self, nombre: &str, nuevo: &str) -> Result<ScenesResult, String> {
+            let final_ = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard.rename_scene(nombre, nuevo).map_err(mensaje_de)?
+            };
+            if final_ != nombre {
+                self.renombrar_escena_viva(nombre, &final_);
+                diagnostics::log("escena:renombrada");
+                self.avisar_escenas("renamed");
+            }
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: Some(final_),
+                warnings: Vec::new(),
+            })
+        }
+
+        /// DUPLICAR: copia sin atajo ni arranque, al final de la lista.
+        pub fn duplicar_escena(&self, nombre: &str) -> Result<ScenesResult, String> {
+            let copia = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard.duplicate_scene(nombre).map_err(mensaje_de)?
+            };
+            diagnostics::log("escena:duplicada");
+            self.avisar_escenas("duplicated");
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: Some(copia),
+                warnings: Vec::new(),
+            })
+        }
+
+        /// ↑/↓ y arrastrar: `nombres` tiene que ser exactamente el conjunto de hoy.
+        pub fn reordenar_escenas(&self, nombres: Vec<String>) -> Result<ScenesResult, String> {
+            {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                guard.reorder_scenes(&nombres).map_err(mensaje_de)?;
+            }
+            diagnostics::log("escena:reordenadas");
+            self.avisar_escenas("reordered");
+            Ok(ScenesResult {
+                scenes: self.listar_escenas()?,
+                name: None,
+                warnings: Vec::new(),
+            })
+        }
+
+        /// PROBAR un borrador: aplica pantallas y sonido con la red de siempre, pero NO escribe
+        /// escenas, NO corre acciones y NO marca `escena_pendiente` ni `escena_activa`.
+        pub fn probar_borrador(&self, borrador: SceneDraft) -> Result<DisplaysSnapshot, String> {
+            let layout = escenas::layout_de_salidas(&borrador.outputs)?;
+            if layout.enabled_output_count() == 0 {
+                return Err("tiene que quedar al menos una pantalla prendida".to_string());
+            }
+            let audio_del_borrador = borrador.audio.as_ref().map(|a| AudioTarget {
+                endpoint_id: a.endpoint_id.clone(),
+                friendly_name: a.friendly_name.clone(),
+            });
+
+            let plazo = {
+                let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                // Antes de tocar Windows: una pantalla prendida que no está conectada.
+                let faltan = guard
+                    .unresolved_enabled_outputs(&layout)
+                    .map_err(|e| e.to_string())?;
+                if let Some(falta) = faltan.first() {
+                    let nombre = borrador
+                        .outputs
+                        .iter()
+                        .zip(layout.outputs.iter())
+                        .find(|(_, l)| &l.display_id == falta)
+                        .map(|(o, _)| {
+                            if o.name.trim().is_empty() {
+                                o.display_id.clone()
+                            } else {
+                                o.name.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| format_display_id(falta));
+                    return Err(format!(
+                        "{nombre} no está conectada: conectala o apagala en la escena para probar"
+                    ));
+                }
+                guard.apply_draft(layout.clone()).map_err(mensaje_de)?;
+                guard.pending_confirmation_remaining()
+            };
+            let avisos = match plazo {
+                Some(_) => self.avisos_de_resolucion(Some(&layout)),
+                None => Vec::new(),
+            };
+
+            // El sonido de una PRUEBA solo se cambia cuando hay cuenta regresiva que lo devuelva:
+            // si las pantallas ya estaban así, no hay nada pendiente y un cambio de sonido
+            // quedaría para siempre con el borrador sin guardar. Se avisa en el log.
+            if let Some(objetivo) = &audio_del_borrador {
+                if plazo.is_some() {
+                    self.aplicar_audio_objetivo(&borrador.name, objetivo, true);
+                } else {
+                    crate::runtime_log::info(
+                        "[displays] la prueba no cambia el sonido: las pantallas ya estaban así y no hay cuenta regresiva que lo devuelva",
+                    );
+                }
+            }
+            diagnostics::log("escena:probada");
+            match plazo {
+                Some(plazo) => self.aplicar_con_red_avisando(plazo, avisos),
+                None => {
+                    self.avisar_cambio();
+                    self.snapshot()
+                }
+            }
+        }
+
+        /// Un renombre en memoria: la escena activa/pendiente sigue a su nombre nuevo (así su
+        /// "Al salir" y el sello siguen andando). Fuera del lock del manager.
+        fn renombrar_escena_viva(&self, vieja: &str, nueva: &str) {
+            if let Ok(mut slot) = self.0.escena_activa.lock() {
+                if slot.as_deref() == Some(vieja) {
+                    *slot = Some(nueva.to_string());
+                }
+            }
+            if let Ok(mut slot) = self.0.escena_pendiente.lock() {
+                if slot.as_deref() == Some(vieja) {
+                    *slot = Some(nueva.to_string());
                 }
             }
         }
@@ -1139,6 +1721,16 @@ mod estado {
         /// lados; un layout completo no tiene ese lujo. Ante un layout malo, el que
         /// avisa es el usuario (no confirma) y el que revierte es el watchdog.
         fn aplicar_con_red(&self, plazo: Duration) -> Result<DisplaysSnapshot, String> {
+            self.aplicar_con_red_avisando(plazo, Vec::new())
+        }
+
+        /// Lo mismo, con los avisos de resolución (encargo 02) en el `applied`: Windows puso
+        /// otra resolución de la que pidió la escena. Vacío = el aviso de siempre.
+        fn aplicar_con_red_avisando(
+            &self,
+            plazo: Duration,
+            avisos: Vec<String>,
+        ) -> Result<DisplaysSnapshot, String> {
             let despues = match self.foto_cruda() {
                 Ok(foto) => foto,
                 Err(err) => {
@@ -1150,10 +1742,7 @@ mod estado {
                         "[displays] no se pudo leer cómo quedó ({err}); el watchdog queda armado, así que si no confirmás vuelve solo"
                     ));
                     self.armar_watchdog(plazo);
-                    self.avisar_confirmacion(serde_json::json!({
-                        "kind": "applied",
-                        "timeoutMs": plazo.as_millis() as u64,
-                    }));
+                    self.avisar_confirmacion(self.payload_aplicado(plazo, &avisos));
                     self.avisar_cambio();
                     return Err(format!(
                         "el cambio se aplicó pero no se pudo leer cómo quedó ({err}). Si la pantalla está bien, confirmá; si no, esperá y vuelve sola."
@@ -1162,15 +1751,35 @@ mod estado {
             };
 
             self.armar_watchdog(plazo);
-            self.avisar_confirmacion(serde_json::json!({
-                "kind": "applied",
-                "timeoutMs": plazo.as_millis() as u64,
-            }));
+            self.avisar_confirmacion(self.payload_aplicado(plazo, &avisos));
             self.avisar_cambio();
 
             let mut foto = despues;
             foto.pending = self.pendiente();
             Ok(foto)
+        }
+
+        /// El aviso `applied`. Si lo pendiente es una PRUEBA de borrador suma `isTest: true`
+        /// (campo opcional: falta = cambio común). Con avisos de resolución suma `warnings`
+        /// (lista de textos para Guido; campo opcional: falta = nada que avisar).
+        fn payload_aplicado(&self, plazo: Duration, avisos: &[String]) -> serde_json::Value {
+            let mut payload = serde_json::json!({
+                "kind": "applied",
+                "timeoutMs": plazo.as_millis() as u64,
+            });
+            let es_prueba = self
+                .0
+                .manager
+                .lock()
+                .map(|guard| guard.pending_is_test())
+                .unwrap_or(false);
+            if es_prueba {
+                payload["isTest"] = serde_json::Value::Bool(true);
+            }
+            if !avisos.is_empty() {
+                payload["warnings"] = serde_json::json!(avisos);
+            }
+            payload
         }
 
         /// Lanza el gatillo del auto-rollback.
@@ -1206,6 +1815,7 @@ mod estado {
                         "reason": "timeout",
                     }));
                     self.avisar_cambio();
+                    self.recalcular_puesta();
                 }
                 // Alguien resolvió la confirmación antes (confirmó o revirtió a
                 // mano). Los eventos ya los mandó ese camino; repetirlos acá haría
@@ -1257,6 +1867,99 @@ mod estado {
         /// CCD fresca (no del cache), así que la lista se actualiza sola.
         fn al_cambiar_displays(&self) {
             self.avisar_cambio();
+            self.recalcular_puesta();
+            // Una pantalla recién prendida es la única que puede contar sus modos. Corre en
+            // el hilo del cambio (con su espera anti-ráfaga), no en un poll nuevo.
+            self.anotar_modos();
+        }
+
+        // --- modos de pantalla (encargo 02) ------------------------------------
+
+        /// Lee los modos de las pantallas prendidas **fuera del lock del manager** y los
+        /// anota en `display_modes` (el vendor guarda solo si cambió y nunca vacía una
+        /// lista). Devuelve lo leído para quien quiera mostrarlo; en modo mentira, nada.
+        fn anotar_modos(&self) -> Vec<modos::ModosLeidos> {
+            if self.0.mock {
+                return Vec::new();
+            }
+            let leidos = match super::lectura_de_modos::leer() {
+                Ok(leidos) => leidos,
+                Err(err) => {
+                    crate::runtime_log::warn(format!(
+                        "[displays] no se pudieron leer los modos de las pantallas: {err}"
+                    ));
+                    return Vec::new();
+                }
+            };
+            let vistas: Vec<_> = leidos
+                .iter()
+                .map(|l| (l.id.clone(), l.nombre.clone(), l.modos.clone()))
+                .collect();
+            let resultado = match self.0.manager.lock() {
+                Ok(mut guard) => guard.remember_display_modes(&vistas),
+                Err(_) => {
+                    crate::runtime_log::err("[displays] modos: el estado quedó inconsistente");
+                    return leidos;
+                }
+            };
+            match resultado {
+                Ok(true) => diagnostics::log(format!("modos:anotados:{}", leidos.len())),
+                Ok(false) => {}
+                Err(err) => crate::runtime_log::warn(format!(
+                    "[displays] no se pudieron guardar los modos de las pantallas: {err}"
+                )),
+            }
+            leidos
+        }
+
+        /// El selector de resolución: cada pantalla que Windows ve o que alguna escena
+        /// nombra, con lo que contestó recién o, si no, lo recordado.
+        pub fn listar_modos(&self) -> Result<Vec<DisplayModesView>, String> {
+            let pantallas = self.pantallas_con_modos()?;
+            Ok(pantallas.iter().map(modos::ModosDePantalla::a_vista).collect())
+        }
+
+        fn pantallas_con_modos(&self) -> Result<Vec<modos::ModosDePantalla>, String> {
+            let leidos = self.anotar_modos();
+            let i = self.insumos_de_escenas()?;
+            Ok(modos::pantallas_con_modos(
+                &i.infos,
+                &i.perfiles,
+                &i.huellas,
+                &i.ajustes.display_modes,
+                &leidos,
+            ))
+        }
+
+        /// Después de aplicar una escena: re-lee lo que Windows dejó (la enumeración de hoy,
+        /// solo las prendidas) y dice en palabras cada pantalla que quedó en otra resolución
+        /// o frecuencia de la elegida. Cada aviso va también al log. Sin resolución elegida
+        /// (todo "Dejar la que tenga") no lee nada.
+        fn avisos_de_resolucion(&self, deseado: Option<&Layout>) -> Vec<String> {
+            let Some(deseado) = deseado else {
+                return Vec::new();
+            };
+            let elige_alguna = deseado
+                .outputs
+                .iter()
+                .any(|o| o.enabled && o.resolution.width > 0 && o.resolution.height > 0);
+            if self.0.mock || !elige_alguna {
+                return Vec::new();
+            }
+            let quedo = match super::enumerate::query_active_only_topology() {
+                Ok(topologia) => topologia,
+                Err(err) => {
+                    crate::runtime_log::warn(format!(
+                        "[displays] no se pudo re-leer la resolución que quedó: {err}"
+                    ));
+                    return Vec::new();
+                }
+            };
+            let avisos = modos::avisos_tras_aplicar(deseado, &quedo.layout, &quedo.displays);
+            for aviso in &avisos {
+                crate::runtime_log::warn(format!("[displays] {aviso}"));
+            }
+            avisos
         }
 
         // --- avisos ----------------------------------------------------------
@@ -1271,6 +1974,12 @@ mod estado {
 
         fn avisar_audio(&self, payload: serde_json::Value) {
             (self.0.emisor)(EVENTO_AUDIO, payload);
+        }
+
+        /// Avisa que la lista de escenas cambió (`kind`: saved, renamed, duplicated,
+        /// reordered, deleted, current). El payload no trae la lista: la pantalla la vuelve a pedir.
+        pub fn avisar_escenas(&self, kind: &str) {
+            (self.0.emisor)(EVENTO_ESCENAS, serde_json::json!({ "kind": kind }));
         }
 
         // --- audio por perfil (Fase 3) --------------------------------------
@@ -1293,6 +2002,12 @@ mod estado {
             let Some(target) = target else {
                 return; // "No tocar el audio".
             };
+            self.aplicar_audio_objetivo(nombre, &target, hay_red);
+        }
+
+        /// Aplica una salida de audio concreta (la de un perfil guardado o la de un borrador en
+        /// PRUEBA). `nombre` es solo para el log. Misma red que `aplicar_audio_de_perfil`.
+        fn aplicar_audio_objetivo(&self, nombre: &str, target: &AudioTarget, hay_red: bool) {
             // Capturar el default ACTUAL antes de cambiarlo (solo si hay red que
             // pueda revertir). Sin el lock del manager tomado.
             let previo = if hay_red {
@@ -1300,7 +2015,7 @@ mod estado {
             } else {
                 None
             };
-            let resultado = audio::aplicar_salida(&target);
+            let resultado = audio::aplicar_salida(target);
             // Guardar el audio previo si el cambio se INTENTÓ: Ok(true) = cambió;
             // Err = pudo cambiar PARCIALMENTE (un rol OK, otro falló) antes de
             // devolver error. En ambos casos el revert debe poder deshacerlo. En
@@ -1374,31 +2089,33 @@ mod estado {
         /// tardar; regla de locks del stack). Una acción que falla se loguea y
         /// sigue; el video/audio ya aplicados nunca se revierten por esto.
         fn correr_ciclo_de_escena(&self, nombre: &str) {
+            let lista = self.preparar_ciclo_de_escena(nombre);
+            self.0.cola.encolar(lista);
+            // Sin cambio de video no llega `WM_DISPLAYCHANGE`: si hay dos escenas iguales, la
+            // activa nueva es la que lleva el sello.
+            self.recalcular_puesta();
+        }
+
+        /// La primera mitad del ciclo: arma la lista (SALIDA de la anterior y después ENTRADA
+        /// de `nombre`, con todos los tipos de acción) y fija `nombre` como escena activa
+        /// ANTES de que corra nada. Quien llama la encola cuando le toca.
+        fn preparar_ciclo_de_escena(&self, nombre: &str) -> Vec<monarch::ActionV2> {
             let por_perfil = {
                 let Ok(guard) = self.0.manager.lock() else {
-                    return;
+                    return Vec::new();
                 };
                 guard.settings().profile_actions.clone()
             };
             let anterior = self.0.escena_activa.lock().ok().and_then(|g| g.clone());
-            let salida_previa: Vec<Accion> = match &anterior {
+            let mut lista: Vec<monarch::ActionV2> = match &anterior {
                 Some(prev) if prev != nombre => por_perfil
                     .get(prev)
-                    .map(|a| a.salida.clone())
+                    .map(|a| a.salida_completa())
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
-            let entrada: Vec<Accion> = por_perfil
-                .get(nombre)
-                .map(|a| a.entrada.clone())
-                .unwrap_or_default();
-            // Primero la SALIDA de la escena anterior, después la ENTRADA de la
-            // nueva. Sin locks tomados.
-            if !salida_previa.is_empty() {
-                acciones::ejecutar(&salida_previa);
-            }
-            if !entrada.is_empty() {
-                acciones::ejecutar(&entrada);
+            if let Some(a) = por_perfil.get(nombre) {
+                lista.extend(a.entrada_completa());
             }
             // La nueva escena queda activa aunque no tenga acciones: así su SALIDA
             // futura (si se la agregan) tiene contra qué correr, y no se re-dispara
@@ -1406,6 +2123,7 @@ mod estado {
             if let Ok(mut slot) = self.0.escena_activa.lock() {
                 *slot = Some(nombre.to_string());
             }
+            lista
         }
 
         /// Marca que la escena `nombre` se aplicó **con red** y espera confirmación.
@@ -1418,13 +2136,14 @@ mod estado {
 
         /// En `confirm`: el cambio con red recién ahí queda committeado ⇒ correr el
         /// ciclo de la escena que estaba pendiente (si la había).
-        fn confirmar_escena_pendiente(&self) {
+        fn confirmar_escena_pendiente(&self) -> Vec<monarch::ActionV2> {
             let pendiente = match self.0.escena_pendiente.lock() {
                 Ok(mut slot) => slot.take(),
                 Err(_) => None,
             };
-            if let Some(nombre) = pendiente {
-                self.correr_ciclo_de_escena(&nombre);
+            match pendiente {
+                Some(nombre) => self.preparar_ciclo_de_escena(&nombre),
+                None => Vec::new(),
             }
         }
 
@@ -1482,6 +2201,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("audio:asignado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -1494,6 +2214,7 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("audio:limpiado");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -1521,11 +2242,21 @@ mod estado {
                 } else {
                     ajustes
                         .profile_actions
-                        .insert(nombre.to_string(), PerfilAcciones { entrada, salida });
+                        .insert(
+                            nombre.to_string(),
+                            // `..Default`: sin `_v2`. Esta vía vieja reemplaza TODO, y una
+                            // lista `_v2` que quedara atrás pisaría lo que se acaba de asignar.
+                            PerfilAcciones {
+                                entrada,
+                                salida,
+                                ..Default::default()
+                            },
+                        );
                 }
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("acciones:asignadas");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
         }
 
@@ -1538,7 +2269,48 @@ mod estado {
                 guard.update_settings(ajustes).map_err(|e| e.to_string())?;
             }
             diagnostics::log("acciones:limpiadas");
+            self.avisar_escenas("saved");
             self.listar_perfiles()
+        }
+    }
+
+    /// Lo que leen las vistas de escenas, tomado de una vez.
+    struct InsumosEscenas {
+        perfiles: Vec<Profile>,
+        ajustes: monarch::AppSettings,
+        huellas: Vec<monarch::DisplayFingerprint>,
+        actual: Result<Layout, String>,
+        infos: Vec<monarch::DisplayInfo>,
+    }
+
+    /// El layout guardado de una escena (para comparar con lo que quedó o con lo editado).
+    fn layout_del_perfil(manager: &Manager, nombre: &str) -> Option<Layout> {
+        manager
+            .list_profiles()
+            .into_iter()
+            .find(|p| p.name == nombre)
+            .map(|p| p.layout)
+    }
+
+    fn buscar_escena<'a>(
+        perfiles: &'a [Profile],
+        nombre: Option<&str>,
+    ) -> Result<&'a Profile, String> {
+        let nombre = nombre.ok_or_else(|| "decime de qué escena partir".to_string())?;
+        perfiles
+            .iter()
+            .find(|p| p.name == nombre)
+            .ok_or_else(|| format!("no existe la escena \"{nombre}\""))
+    }
+
+    /// El error del manager como texto para Guido (los de escenas ya vienen en castellano).
+    fn mensaje_de(error: ManagerError) -> String {
+        match error {
+            ManagerError::Validation(texto) | ManagerError::NotFound(texto) => texto,
+            ManagerError::ConfirmationPending => {
+                "ya hay un cambio esperando que lo confirmes".to_string()
+            }
+            otro => otro.to_string(),
         }
     }
 
@@ -1557,25 +2329,11 @@ mod estado {
         audios: &BTreeMap<String, AudioTarget>,
         acciones_por_perfil: &BTreeMap<String, PerfilAcciones>,
     ) -> ProfileView {
-        let activos: Vec<_> = perfil.layout.outputs.iter().filter(|o| o.enabled).collect();
-        let summary = if activos.is_empty() {
-            "sin monitores".to_string()
-        } else {
-            let resoluciones: Vec<String> = activos
-                .iter()
-                .map(|o| format!("{}×{}", o.resolution.width, o.resolution.height))
-                .collect();
-            format!(
-                "{} {} · {}",
-                activos.len(),
-                if activos.len() == 1 { "monitor" } else { "monitores" },
-                resoluciones.join(", ")
-            )
-        };
+        let activos = perfil.layout.outputs.iter().filter(|o| o.enabled).count();
         ProfileView {
             name: perfil.name.clone(),
-            active_count: activos.len(),
-            summary,
+            active_count: activos,
+            summary: escenas::resumen(&perfil.layout),
             shortcut: atajos.get(&perfil.name).cloned(),
             audio: audios.get(&perfil.name).map(a_audio_view),
             actions: acciones_por_perfil

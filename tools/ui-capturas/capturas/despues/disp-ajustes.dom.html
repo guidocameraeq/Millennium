@@ -195,10 +195,10 @@
           <span class="modal-title">DISPLAYS</span>
         </header>
         <nav class="displays-tabs" id="displays-tabs" role="tablist">
+          <button class="displays-tab" type="button" data-tab="scenes" role="tab">ESCENAS</button>
           <button class="displays-tab" type="button" data-tab="list" role="tab">LISTA</button>
-          <button class="displays-tab" type="button" data-tab="profiles" role="tab">PERFILES</button>
-          <button class="displays-tab is-active" type="button" data-tab="settings" role="tab">AJUSTES</button>
           <button class="displays-tab" type="button" data-tab="canvas" role="tab">LIENZO</button>
+          <button class="displays-tab is-active" type="button" data-tab="settings" role="tab">AJUSTES</button>
         </nav>
         <div class="modal-body">
           <p class="modal-error" id="displays-error" hidden=""></p>
@@ -237,122 +237,111 @@
       </div></li></ul>
             <p class="mono displays-empty" id="displays-empty" hidden="">Sin monitores para mostrar.</p>
           </div>
-          <div class="displays-pane" data-pane="profiles" hidden="">
-            <div class="displays-profile-save">
-              <input class="displays-profile-name" id="displays-profile-name" type="text" maxlength="60" placeholder="Nombre del perfil…" autocomplete="off" spellcheck="false">
-              <button class="modal-btn small accept" type="button" id="displays-save-profile">＋ GUARDAR EL ACTUAL</button>
-            </div>
-            <div class="displays-confirm-banner" id="displays-profile-confirm" hidden="">
-              <span class="mono displays-confirm-text" id="displays-profile-confirm-text">—</span>
-              <span class="displays-confirm-actions">
-                <button class="modal-btn small reject" type="button" id="displays-profile-confirm-yes">SÍ</button>
-                <button class="modal-btn small" type="button" id="displays-profile-confirm-no">NO</button>
-              </span>
-            </div>
-            <ul class="displays-profiles-list" id="displays-profiles-list"><li class="displays-profile-item" data-name="ESCRITORIO">
-      <div class="displays-profile-info">
-        <div class="displays-profile-name-text">ESCRITORIO</div>
-        <div class="mono displays-profile-summary">2 monitores · 2560×1440, 1920×1080</div>
-        <div class="displays-profile-audio">
-          <label class="displays-profile-audio-label">Sonido a:</label>
-          <select class="displays-setting-select displays-profile-audio-select"><option value="">No tocar</option><option value="ep-1">Parlantes</option><option value="ep-2">TV HDMI</option></select>
-        </div>
-        <div class="displays-profile-scene">
-          <button class="displays-scene-toggle" type="button" title="Acciones que dispara este perfil al aplicarlo (y su limpieza al salir).">🎬 escena…</button>
-          <div class="displays-scene-editor" hidden="">
-            <div class="displays-scene-col" data-list="entrada">
-              <div class="displays-scene-col-head">Al entrar</div>
-              <ul class="displays-scene-chips"><li class="displays-scene-empty">(nada)</li></ul>
-              <div class="displays-scene-add">
-                <select class="displays-setting-select displays-scene-preset">
-                  <option value="">＋ acción…</option>
-                  <option value="bigpicture">🎮 Big Picture</option>
-                  <option value="game">🎮 Juego de Steam…</option>
-                  <option value="chrome">🍿 Chrome (cuenta + link)…</option>
-                  <option value="close_bp">⏹ Cerrar Big Picture</option>
-                  <option value="volume">🔊 Volumen…</option>
-                  <option value="custom">⚙ Comando…</option>
-                </select>
-                <div class="displays-scene-form" hidden=""></div>
+          <div class="displays-pane" data-pane="scenes" hidden="">
+            <div class="scenes-view" id="scenes-list-view">
+              <div class="scenes-top">
+                <div>
+                  <h2 class="scenes-title">ESCENAS</h2>
+                  <p class="scenes-sub mono">Cada escena es una forma de tener tus pantallas.</p>
+                </div>
+                <button class="modal-btn small accept" type="button" id="scenes-new">＋ NUEVA ESCENA</button>
               </div>
-            </div>
-            <div class="displays-scene-col" data-list="salida">
-              <div class="displays-scene-col-head">Al salir</div>
-              <ul class="displays-scene-chips"><li class="displays-scene-empty">(nada)</li></ul>
-              <div class="displays-scene-add">
-                <select class="displays-setting-select displays-scene-preset">
-                  <option value="">＋ acción…</option>
-                  <option value="bigpicture">🎮 Big Picture</option>
-                  <option value="game">🎮 Juego de Steam…</option>
-                  <option value="chrome">🍿 Chrome (cuenta + link)…</option>
-                  <option value="close_bp">⏹ Cerrar Big Picture</option>
-                  <option value="volume">🔊 Volumen…</option>
-                  <option value="custom">⚙ Comando…</option>
-                </select>
-                <div class="displays-scene-form" hidden=""></div>
-              </div>
-            </div>
-          </div>
-        </div>
+              <div class="scenes-notice" id="scenes-notice" role="status" hidden=""></div>
+              <div class="scenes-inline" id="scenes-chooser" hidden=""></div>
+              <p class="mono scenes-reason" id="scenes-block-reason" hidden=""></p>
+              <ul class="scenes-list" id="scenes-list"><li class="scene-card is-current" data-name="Trabajo">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">💼</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i class="off" title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Trabajo</span><span class="scene-badge">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor izquierdo, Monitor central · Apaga: LG TV OLED · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 Parlantes</span><span class="scene-chip">⌨ Ctrl+Alt+1</span></div>
       </div>
-      <div class="displays-profile-actions">
-        <button class="modal-btn small accept displays-profile-load" type="button" title="Aplicar este perfil (vuelve solo si no lo confirmás).">CARGAR</button>
-        <button class="modal-btn small displays-profile-update" type="button" title="Pisar este perfil con el layout actual (previa confirmación).">↻ actualizar</button>
-        <button class="modal-btn small displays-profile-shortcut has-shortcut" type="button" title="Atajo: Ctrl+Alt+1. Clic para cambiarlo (Supr borra · Esc cancela).">⌨ Ctrl+Alt+1</button>
-        <button class="modal-btn small reject displays-profile-delete" type="button">BORRAR</button>
-      </div></li><li class="displays-profile-item" data-name="SOLO TV">
-      <div class="displays-profile-info">
-        <div class="displays-profile-name-text">SOLO TV</div>
-        <div class="mono displays-profile-summary">1 monitor · 1920×1080</div>
-        <div class="displays-profile-audio">
-          <label class="displays-profile-audio-label">Sonido a:</label>
-          <select class="displays-setting-select displays-profile-audio-select"><option value="">No tocar</option><option value="ep-1">Parlantes</option><option value="ep-2">TV HDMI</option></select>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button" disabled="">PUESTA</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
         </div>
-        <div class="displays-profile-scene">
-          <button class="displays-scene-toggle" type="button" title="Acciones que dispara este perfil al aplicarlo (y su limpieza al salir).">🎬 escena…</button>
-          <div class="displays-scene-editor" hidden="">
-            <div class="displays-scene-col" data-list="entrada">
-              <div class="displays-scene-col-head">Al entrar</div>
-              <ul class="displays-scene-chips"><li class="displays-scene-empty">(nada)</li></ul>
-              <div class="displays-scene-add">
-                <select class="displays-setting-select displays-scene-preset">
-                  <option value="">＋ acción…</option>
-                  <option value="bigpicture">🎮 Big Picture</option>
-                  <option value="game">🎮 Juego de Steam…</option>
-                  <option value="chrome">🍿 Chrome (cuenta + link)…</option>
-                  <option value="close_bp">⏹ Cerrar Big Picture</option>
-                  <option value="volume">🔊 Volumen…</option>
-                  <option value="custom">⚙ Comando…</option>
-                </select>
-                <div class="displays-scene-form" hidden=""></div>
-              </div>
-            </div>
-            <div class="displays-scene-col" data-list="salida">
-              <div class="displays-scene-col-head">Al salir</div>
-              <ul class="displays-scene-chips"><li class="displays-scene-empty">(nada)</li></ul>
-              <div class="displays-scene-add">
-                <select class="displays-setting-select displays-scene-preset">
-                  <option value="">＋ acción…</option>
-                  <option value="bigpicture">🎮 Big Picture</option>
-                  <option value="game">🎮 Juego de Steam…</option>
-                  <option value="chrome">🍿 Chrome (cuenta + link)…</option>
-                  <option value="close_bp">⏹ Cerrar Big Picture</option>
-                  <option value="volume">🔊 Volumen…</option>
-                  <option value="custom">⚙ Comando…</option>
-                </select>
-                <div class="displays-scene-form" hidden=""></div>
-              </div>
-            </div>
-          </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir" disabled="">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
         </div>
+        <p class="mono scene-reason" hidden=""></p>
       </div>
-      <div class="displays-profile-actions">
-        <button class="modal-btn small accept displays-profile-load" type="button" title="Aplicar este perfil (vuelve solo si no lo confirmás).">CARGAR</button>
-        <button class="modal-btn small displays-profile-update" type="button" title="Pisar este perfil con el layout actual (previa confirmación).">↻ actualizar</button>
-        <button class="modal-btn small displays-profile-shortcut" type="button" title="Asignar un atajo global para aplicar este perfil.">⌨ atajo</button>
-        <button class="modal-btn small reject displays-profile-delete" type="button">BORRAR</button>
-      </div></li></ul>
-            <p class="mono displays-empty" id="displays-profiles-empty" hidden="">Todavía no guardaste ningún perfil.</p>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Jugar en la TV">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🎮</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 21px; top: 18px; width: 44px; height: 25px;"></i><i class="off" title="Monitor central" style="left: 6px; top: 10px; width: 59px; height: 33px;"></i><i class="pri" title="LG TV OLED" style="left: 65px; top: 10px; width: 89px; height: 50px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Jugar en la TV</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: LG TV OLED · Apaga: Monitor izquierdo, Monitor central · Principal: LG TV OLED</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 TV HDMI</span><span class="scene-chip">⌨ Ctrl+Alt+2</span><span class="scene-chip">🎬 Al entrar: 🎮 Big Picture · 🔊 Volumen 40% · ⏳ Esperar 5 s · 🌈 HDR LG TV OLED: prender</span><span class="scene-chip">🎬 Al salir: ⏹ Cerrar Big Picture · ✕ Cerrar steam.exe · 🌈 HDR LG TV OLED: apagar</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Película">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🍿</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Película</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor central, LG TV OLED · Apaga: Monitor izquierdo · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 TV HDMI</span><span class="scene-chip">🎬 Al entrar: 🌐 Chrome Casa → netflix.com</span><span class="scene-chip good">⏻ arranca con Windows</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li><li class="scene-card" data-name="Solo central">
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico">🖥️</div>
+      <div class="scene-mini-slot"><div class="scene-mini" style="width: 160px; height: 70px;"><i class="off" title="Monitor izquierdo" style="left: 6px; top: 27px; width: 44px; height: 25px;"></i><i class="pri" title="Monitor central" style="left: 50px; top: 18px; width: 59px; height: 33px;"></i><i class="off" title="LG TV OLED" style="left: 110px; top: 18px; width: 44px; height: 25px;"></i></div></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text">Solo central</span><span class="scene-badge" hidden="">PUESTA AHORA</span></div>
+        <div class="scene-sentence mono">Prende: Monitor central · Apaga: Monitor izquierdo, LG TV OLED · Principal: Monitor central</div>
+        <div class="scene-chips"><span class="scene-chip">🔊 Audio: no toca</span></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar" disabled="">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden=""></p>
+      </div>
+      <div class="scene-menu" hidden=""></div>
+      <div class="scene-inline" hidden="" data-modo=""></div></li></ul>
+              <p class="mono displays-empty" id="scenes-empty" hidden="">Todavía no hay escenas. ＋ NUEVA ESCENA arma la primera.</p>
+              <p class="mono scenes-note">La app reconoce qué escena coincide con cómo están tus pantallas, aunque las hayas puesto a mano.</p>
+            </div>
+            <div class="scenes-editor" id="scenes-editor-view" hidden=""></div>
           </div>
           <div class="displays-pane" data-pane="settings">
             <div class="displays-setting">
@@ -368,12 +357,12 @@
               <label class="displays-setting-label" for="displays-startup-profile">Aplicar un perfil al encender</label>
               <p class="displays-setting-hint">Al arrancar Windows con Millennium en la bandeja (autostart), aplica este perfil solo. Si el layout ya coincide, no hace nada.</p>
               <div class="displays-setting-row">
-                <select class="displays-setting-select" id="displays-startup-profile"><option value="">— ninguno —</option><option value="ESCRITORIO">ESCRITORIO</option><option value="SOLO TV">SOLO TV</option></select>
+                <select class="displays-setting-select" id="displays-startup-profile"><option value="">— ninguno —</option><option value="Trabajo">Trabajo</option><option value="Jugar en la TV">Jugar en la TV</option><option value="Película">Película</option><option value="Solo central">Solo central</option></select>
               </div>
             </div>
             <div class="displays-setting">
               <label class="displays-setting-label">Atajos de teclado por perfil</label>
-              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por perfil en la pestaña PERFILES. Apagado, ninguno funciona.</p>
+              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por escena en la pestaña ESCENAS. Apagado, ninguno funciona.</p>
               <div class="displays-setting-row">
                 <label class="sound-toggle">
                   <input type="checkbox" id="displays-shortcuts-enabled">

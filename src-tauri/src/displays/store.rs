@@ -70,6 +70,44 @@ pub fn fallback_data_dir() -> Result<PathBuf, ManagerError> {
     }
 }
 
+/// Nombre de la copia cruda de seguridad (módulo escenas).
+const CHECKPOINT_BASE: &str = "displays.pre-escenas";
+
+/// La primera vez que abre la versión con escenas nuevas, copia los bytes CRUDOS de
+/// `displays.json` tal como estaban (aunque estén corruptos) a `displays.pre-escenas.json`.
+/// Una sola vez: si la copia ya existe, nunca se pisa. Si no había archivo, no hay nada que
+/// resguardar. Si la copia falla, el store no abre: es preferible no tocar el archivo a
+/// escribir sin red.
+fn checkpoint_pre_escenas(data_dir: &Path) -> Result<(), ManagerError> {
+    let (origen, destino) = rutas_de_checkpoint(data_dir);
+    if destino.exists() || !origen.exists() {
+        return Ok(());
+    }
+    std::fs::copy(&origen, &destino).map_err(|e| {
+        ManagerError::Backend(format!(
+            "no se pudo resguardar {} en {} antes de abrir las escenas nuevas: {e}",
+            origen.display(),
+            destino.display()
+        ))
+    })?;
+    Ok(())
+}
+
+/// `(displays.json, displays.pre-escenas.json)`, con el mismo sufijo de
+/// `MILLENNIUM_INSTANCE` que usa `JsonStore` para el original.
+fn rutas_de_checkpoint(data_dir: &Path) -> (PathBuf, PathBuf) {
+    match std::env::var("MILLENNIUM_INSTANCE").ok() {
+        Some(s) if !s.is_empty() => (
+            data_dir.join(format!("{FILE_BASE}-{s}.{FILE_EXT}")),
+            data_dir.join(format!("{CHECKPOINT_BASE}-{s}.{FILE_EXT}")),
+        ),
+        _ => (
+            data_dir.join(format!("{FILE_BASE}.{FILE_EXT}")),
+            data_dir.join(format!("{CHECKPOINT_BASE}.{FILE_EXT}")),
+        ),
+    }
+}
+
 /// `ConfigStore` de Monarch respaldado por el store atómico de Millennium.
 pub struct MillenniumConfigStore {
     store: JsonStore<AppConfig>,
@@ -83,6 +121,8 @@ impl MillenniumConfigStore {
     /// de resolverse acá adentro: es la única forma de garantizar que este
     /// store escriba en la carpeta de Millennium y en ninguna otra.
     pub fn new(data_dir: &Path) -> Result<Self, ManagerError> {
+        // ANTES de cualquier lectura que pueda desembocar en una escritura.
+        checkpoint_pre_escenas(data_dir)?;
         let store = JsonStore::<AppConfig>::load(data_dir, FILE_BASE, FILE_EXT).map_err(|e| {
             // `ManagerError` no tiene variante para `anyhow`; el `{e:#}` trae
             // la cadena de contexto entera, que es donde está la ruta.

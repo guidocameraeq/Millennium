@@ -32,14 +32,15 @@
   // Fase 3: pestañas, perfiles y ajustes.
   const displaysTabs = document.getElementById('displays-tabs');
   const displaysPanes = displaysSectionEl ? Array.from(displaysSectionEl.querySelectorAll('.displays-pane')) : [];
-  const displaysProfilesList = document.getElementById('displays-profiles-list');
-  const displaysProfilesEmpty = document.getElementById('displays-profiles-empty');
-  const displaysProfileName = document.getElementById('displays-profile-name');
-  const displaysSaveProfileBtn = document.getElementById('displays-save-profile');
-  const displaysProfileConfirm = document.getElementById('displays-profile-confirm');
-  const displaysProfileConfirmText = document.getElementById('displays-profile-confirm-text');
-  const displaysProfileConfirmYes = document.getElementById('displays-profile-confirm-yes');
-  const displaysProfileConfirmNo = document.getElementById('displays-profile-confirm-no');
+  // Pestaña ESCENAS (encargo 05): la lista de tarjetas y el editor viven en displays-escenas.js / displays-editor.js.
+  const scenesListView = document.getElementById('scenes-list-view');
+  const scenesEditorView = document.getElementById('scenes-editor-view');
+  const scenesList = document.getElementById('scenes-list');
+  const scenesEmpty = document.getElementById('scenes-empty');
+  const scenesNewBtn = document.getElementById('scenes-new');
+  const scenesChooser = document.getElementById('scenes-chooser');
+  const scenesBlockReason = document.getElementById('scenes-block-reason');
+  const scenesNotice = document.getElementById('scenes-notice');
   const displaysRevertSecsInput = document.getElementById('displays-revert-secs');
   const displaysSettingsSaveBtn = document.getElementById('displays-settings-save');
   // Displays v2, Fase 1: perfil de arranque + interruptor de atajos.
@@ -89,11 +90,12 @@
   // CPU en reposo, que es justo lo que este proyecto vigila.
   let displaysCountdownTimer = null;
   let displaysLastShownSec = -1;
-  // Fase 3: acción destructiva de perfil esperando el OK del banner de confirmación.
-  let pendingProfileAction = null; // { type: 'overwrite'|'delete', name }
-  // Displays v2, Fase 1: captura de un atajo de teclado para un perfil.
-  let shortcutCaptureName = null;  // perfil que está capturando, o null
-  let shortcutKeyHandler = null;   // listener one-shot de keydown mientras se captura
+  // La cuenta regresiva es de un PROBAR (displays_test_draft), no de un cambio
+  // común: lo dicen el snapshot (pending.isTest) y el evento displays-confirmation.
+  let displaysPendingIsTest = false;
+  // Avisos del aplicado (evento displays-confirmation, `warnings`): "Windows dejó otra
+  // resolución". Se muestran en el cartel mientras dura la confirmación.
+  let displaysPendingWarnings = [];
   // Displays v2, Fase 1: AJUSTES recién es seguro de guardar cuando loadSettings
   // terminó de poblar los controles. Sin esto, un cambio disparado durante la
   // carga mandaría los defaults vacíos y borraría el perfil de arranque guardado.
@@ -115,17 +117,50 @@
     displaysLastShownSec = -1;
   }
 
+  // Los avisos van en un renglón propio del cartel, armado solo cuando hay (sin avisos el
+  // cartel queda exactamente como siempre). Todo texto por textContent.
+  function renderPendingWarnings() {
+    const inner = displaysPendingBar && displaysPendingBar.querySelector('.displays-banner-inner');
+    if (!inner) return;
+    const avisos = displaysPendingWarnings;
+    let box = inner.querySelector('.displays-banner-warn');
+    if (!avisos.length) {
+      if (box) box.remove();
+      inner.classList.remove('has-warn');
+      return;
+    }
+    const key = avisos.join('\n');
+    if (box && box.dataset.key === key) return;
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'displays-banner-warn mono';
+      inner.appendChild(box);
+    }
+    box.dataset.key = key;
+    box.replaceChildren(...avisos.map((w) => {
+      const p = document.createElement('p');
+      p.textContent = `⚠ ${w}`;
+      return p;
+    }));
+    inner.classList.add('has-warn');
+  }
+
   function renderDisplaysPending() {
     const pending = state.displaysPending;
     if (displaysPendingBar) displaysPendingBar.hidden = !pending;
+    renderPendingWarnings();
     if (!pending) return;
+    // Un PROBAR habla de quedarse o volver; un cambio común, de confirmar o revertir.
+    if (displaysConfirmBtn) displaysConfirmBtn.textContent = displaysPendingIsTest ? '✓ ME QUEDO' : '✓ CONFIRMAR';
+    if (displaysRevertBtn) displaysRevertBtn.textContent = displaysPendingIsTest ? '↩ VOLVER AHORA' : '↩ REVERTIR AHORA';
     const remaining = Math.max(0, pending.deadlineAt - Date.now());
     const secs = Math.ceil(remaining / 1000);
     // Escribir en el DOM solo cuando cambia el segundo que se ve: el interval
     // corre mas fino que eso para no atrasarse, no para repintar.
     if (secs !== displaysLastShownSec) {
       displaysLastShownSec = secs;
-      setText(displaysPendingText, secs > 0 ? `REVIERTE SOLO EN ${secs}s` : 'REVIRTIENDO…');
+      const que = displaysPendingIsTest ? 'PRUEBA · VUELVE SOLO EN' : 'REVIERTE SOLO EN';
+      setText(displaysPendingText, secs > 0 ? `${que} ${secs}s` : 'REVIRTIENDO…');
     }
     // Llego a cero: el reloj ya no tiene nada que contar. Quien avisa como
     // termino es el evento displays-confirmation del backend.
@@ -151,15 +186,17 @@
   function clearDisplaysPending() {
     stopDisplaysCountdown();
     state.displaysPending = null;
+    displaysPendingWarnings = [];
     renderDisplaysPending();
   }
 
   function refreshDisplaysUi() {
     renderDisplays();
     renderDisplaysPending();
-    // Los botones CARGAR/BORRAR/GUARDAR se apagan mientras hay un cambio en
-    // vuelo o pendiente; renderProfiles se ocupa (no-op si no se cargaron).
-    renderProfiles();
+    // APLICAR/GUARDAR/BORRAR… de las escenas se apagan mientras hay un cambio en
+    // vuelo o pendiente (con el motivo escrito); lo dibujan displays-escenas.js y displays-editor.js.
+    renderScenes();
+    refreshSceneEditor();
     // Lienzo: NO se toca en medio de un arrastre (re-renderizar re-escalaría y
     // sacaría el monitor de abajo del cursor). Si el estado ya se asentó (sin
     // pendiente) y no hay un acomodo local sin aplicar, se re-sincroniza con la
@@ -314,6 +351,7 @@
     state.displays = Array.isArray(snapshot?.displays) ? snapshot.displays : [];
     if (displaysMockWarning) displaysMockWarning.hidden = snapshot?.source !== 'mock';
     const remainingMs = Number(snapshot?.pending?.remainingMs);
+    displaysPendingIsTest = !!snapshot?.pending?.isTest;
     if (Number.isFinite(remainingMs) && remainingMs > 0) {
       // Rehidratacion: si el usuario cerro y reabrio el modal en el medio, la
       // cuenta reaparece con lo que quedaba segun el reloj del backend.
@@ -421,210 +459,13 @@
     }
     displaysPanes.forEach((p) => { p.hidden = p.dataset.pane !== tab; });
     if (displaysError) displaysError.hidden = true;
-    hideProfileConfirm();
     cancelShortcutCapture();
-    // Los datos de perfiles/ajustes se piden recién al entrar a su pestaña.
-    if (tab === 'profiles') loadProfiles();
+    // Los datos de escenas/ajustes se piden recién al entrar a su pestaña.
+    if (tab === 'scenes') loadScenes();
     else if (tab === 'settings') loadSettings();
     // Lienzo: si hay un acomodo local sin aplicar, se conserva al volver a la
     // pestaña (mismo criterio que la re-sync); si no, se arranca de la realidad.
     else if (tab === 'canvas') { if (!canvasDirty) initCanvasDraft(); renderCanvas(); }
-  }
-
-  // --- Fase 3: perfiles -----------------------------------------------------
-
-  function buildProfileItem(p) {
-    const li = document.createElement('li');
-    li.className = 'displays-profile-item';
-    li.dataset.name = p.name;
-    // Template ESTATICO; los datos entran por setText (mismo patron que las filas
-    // de monitores y de peers: nunca innerHTML con strings del backend). El editor
-    // de escena (Fase 4) tambien es 100% estatico: los chips y los inputs se
-    // llenan despues por createElement/textContent, nunca por interpolacion.
-    // `which`/`label` son literales fijos, asi que la interpolacion es segura.
-    const sceneCol = (which, label) => `
-            <div class="displays-scene-col" data-list="${which}">
-              <div class="displays-scene-col-head">${label}</div>
-              <ul class="displays-scene-chips"></ul>
-              <div class="displays-scene-add">
-                <select class="displays-setting-select displays-scene-preset">
-                  <option value="">＋ acción…</option>
-                  <option value="bigpicture">🎮 Big Picture</option>
-                  <option value="game">🎮 Juego de Steam…</option>
-                  <option value="chrome">🍿 Chrome (cuenta + link)…</option>
-                  <option value="close_bp">⏹ Cerrar Big Picture</option>
-                  <option value="volume">🔊 Volumen…</option>
-                  <option value="custom">⚙ Comando…</option>
-                </select>
-                <div class="displays-scene-form" hidden></div>
-              </div>
-            </div>`;
-    li.innerHTML = `
-      <div class="displays-profile-info">
-        <div class="displays-profile-name-text"></div>
-        <div class="mono displays-profile-summary"></div>
-        <div class="displays-profile-audio">
-          <label class="displays-profile-audio-label">Sonido a:</label>
-          <select class="displays-setting-select displays-profile-audio-select"></select>
-        </div>
-        <div class="displays-profile-scene">
-          <button class="displays-scene-toggle" type="button">🎬 escena…</button>
-          <div class="displays-scene-editor" hidden>
-            ${sceneCol('entrada', 'Al entrar')}
-            ${sceneCol('salida', 'Al salir')}
-          </div>
-        </div>
-      </div>
-      <div class="displays-profile-actions">
-        <button class="modal-btn small accept displays-profile-load" type="button">CARGAR</button>
-        <button class="modal-btn small displays-profile-update" type="button">↻ actualizar</button>
-        <button class="modal-btn small displays-profile-shortcut" type="button">⌨ atajo</button>
-        <button class="modal-btn small reject displays-profile-delete" type="button">BORRAR</button>
-      </div>`;
-    updateProfileItem(li, p);
-    return li;
-  }
-
-  function updateProfileItem(li, p) {
-    setText(li.querySelector('.displays-profile-name-text'), p.name);
-    setText(li.querySelector('.displays-profile-summary'),
-      (typeof p.summary === 'string' && p.summary) ? p.summary : '—');
-    const busy = !!state.displaysBusy;
-    const pending = !!state.displaysPending;
-    const loadBtn = li.querySelector('.displays-profile-load');
-    const delBtn = li.querySelector('.displays-profile-delete');
-    if (loadBtn) {
-      loadBtn.disabled = busy || pending;
-      loadBtn.title = pending
-        ? 'Hay un cambio esperando confirmación.'
-        : 'Aplicar este perfil (vuelve solo si no lo confirmás).';
-    }
-    if (delBtn) delBtn.disabled = busy;
-
-    // Displays v2, Fase 1: botón actualizar (pisa el perfil con el layout actual)
-    // y botón de atajo (muestra la combinación asignada o "atajo").
-    const updateBtn = li.querySelector('.displays-profile-update');
-    if (updateBtn) {
-      updateBtn.disabled = busy || pending;
-      updateBtn.title = pending
-        ? 'Hay un cambio esperando confirmación.'
-        : 'Pisar este perfil con el layout actual (previa confirmación).';
-    }
-    const scBtn = li.querySelector('.displays-profile-shortcut');
-    // Si esta fila está capturando un atajo, no se le pisa el texto (lo maneja
-    // el flujo de captura); si no, refleja el atajo guardado.
-    if (scBtn && shortcutCaptureName !== p.name) {
-      scBtn.disabled = busy;
-      // Esta fila NO está capturando: sacar el latido magenta si venía de una
-      // captura anterior (renderProfiles reusa el <li>, la clase no se limpia sola).
-      scBtn.classList.remove('capturing');
-      const sc = (typeof p.shortcut === 'string' && p.shortcut) ? p.shortcut : '';
-      scBtn.textContent = sc ? `⌨ ${sc}` : '⌨ atajo';
-      scBtn.classList.toggle('has-shortcut', !!sc);
-      scBtn.title = sc
-        ? `Atajo: ${sc}. Clic para cambiarlo (Supr borra · Esc cancela).`
-        : 'Asignar un atajo global para aplicar este perfil.';
-    }
-
-    // Displays v2, Fase 3: dropdown de salida de audio ("Sonido a:"). No se
-    // repuebla mientras el usuario lo tiene abierto/enfocado (le pisaría la
-    // selección); mismo cuidado que populateStartupOptions con 'current'.
-    const audioSel = li.querySelector('.displays-profile-audio-select');
-    if (audioSel) {
-      if (document.activeElement !== audioSel) populateAudioSelect(audioSel, p);
-      audioSel.disabled = busy || pending;
-    }
-
-    // Displays v2, Fase 4: editor de escena (acciones de entrada/salida). El
-    // estado abierto/cerrado se recuerda en sceneEditorOpen para sobrevivir al
-    // re-render por diff. Los chips se rearman desde p.actions (backend = verdad).
-    const scene = li.querySelector('.displays-profile-scene');
-    if (scene) {
-      const editor = scene.querySelector('.displays-scene-editor');
-      if (editor) editor.hidden = !sceneEditorOpen.has(p.name);
-      const toggle = scene.querySelector('.displays-scene-toggle');
-      const n = countActions(p);
-      if (toggle) {
-        toggle.textContent = n ? `🎬 escena (${n})` : '🎬 escena…';
-        toggle.classList.toggle('has-scene', n > 0);
-        toggle.disabled = busy || pending;
-        toggle.title = 'Acciones que dispara este perfil al aplicarlo (y su limpieza al salir).';
-      }
-      scene.querySelectorAll('.displays-scene-col').forEach((col) => {
-        const which = col.dataset.list;
-        const acciones = (p.actions && Array.isArray(p.actions[which])) ? p.actions[which] : [];
-        const ul = col.querySelector('.displays-scene-chips');
-        if (ul) renderSceneChips(ul, acciones, busy || pending);
-        const sel = col.querySelector('.displays-scene-preset');
-        if (sel && document.activeElement !== sel) sel.disabled = busy || pending;
-      });
-    }
-  }
-
-  // Cuántas acciones tiene el perfil (entrada + salida), para el contador del toggle.
-  function countActions(p) {
-    const a = (p && p.actions) ? p.actions : {};
-    const e = Array.isArray(a.entrada) ? a.entrada.length : 0;
-    const s = Array.isArray(a.salida) ? a.salida.length : 0;
-    return e + s;
-  }
-
-  // Puebla un <select> "Sonido a:" con No tocar + las salidas activas. Todo por
-  // createElement/textContent (nombres del sistema: nunca innerHTML crudo).
-  function populateAudioSelect(sel, p) {
-    const outputs = Array.isArray(state.audioOutputs) ? state.audioOutputs : [];
-    const assigned = (p.audio && typeof p.audio.endpointId === 'string') ? p.audio.endpointId : '';
-    sel.replaceChildren();
-    const none = document.createElement('option');
-    none.value = '';
-    none.textContent = 'No tocar';
-    sel.appendChild(none);
-    let found = false;
-    outputs.forEach((o) => {
-      const opt = document.createElement('option');
-      opt.value = o.endpointId;
-      opt.textContent = o.friendlyName;
-      if (o.endpointId === assigned) found = true;
-      sel.appendChild(opt);
-    });
-    // El perfil tiene una salida guardada que no está activa ahora (TV apagada):
-    // mostrarla igual para no borrar visualmente la asignación.
-    if (assigned && !found) {
-      const opt = document.createElement('option');
-      opt.value = assigned;
-      const label = (p.audio && p.audio.friendlyName) ? p.audio.friendlyName : assigned;
-      opt.textContent = `${label} (no disponible)`;
-      sel.appendChild(opt);
-    }
-    sel.value = assigned;
-  }
-
-  // Render por diff, como renderDisplays: se reusa el <li> por data-name.
-  function renderProfiles() {
-    if (!displaysProfilesList) return;
-    const items = state.displaysProfiles;
-    if (items === null) return; // todavia no cargados: no tocar el DOM
-    const existing = new Map();
-    Array.from(displaysProfilesList.querySelectorAll('li.displays-profile-item')).forEach((li) => {
-      if (li.dataset.name) existing.set(li.dataset.name, li);
-    });
-    const seen = new Set();
-    items.forEach((p, idx) => {
-      seen.add(p.name);
-      try {
-        let li = existing.get(p.name);
-        if (li) updateProfileItem(li, p);
-        else li = buildProfileItem(p);
-        if (displaysProfilesList.children[idx] !== li) {
-          displaysProfilesList.insertBefore(li, displaysProfilesList.children[idx] || null);
-        }
-      } catch (err) {
-        console.error('[displays] perfil malformado', err);
-      }
-    });
-    existing.forEach((li, name) => { if (!seen.has(name)) li.remove(); });
-    if (displaysProfilesEmpty) displaysProfilesEmpty.hidden = items.length > 0;
-    if (displaysSaveProfileBtn) displaysSaveProfileBtn.disabled = !!state.displaysBusy;
   }
 
   async function loadProfiles() {
@@ -636,13 +477,10 @@
       state.displaysProfiles = [];
       showDisplaysError(err);
     }
-    await loadAudioOutputs();
-    renderProfiles();
   }
 
-  // Displays v2, Fase 3: lista de salidas de audio activas para poblar los
-  // dropdowns "Sonido a:". Best-effort: si falla, los dropdowns quedan solo con
-  // "No tocar" (+ la salida guardada de cada perfil, aunque no esté activa).
+  // Salidas de audio activas para el selector de sonido del editor. Best-effort:
+  // si falla, queda solo "No tocar" (+ la salida guardada de la escena).
   async function loadAudioOutputs() {
     try {
       const outs = await invoke('displays_list_audio_outputs');
@@ -650,31 +488,5 @@
     } catch (err) {
       state.audioOutputs = [];
       console.warn('[displays] no se pudieron listar las salidas de audio', err);
-    }
-  }
-
-  // Displays v2, Fase 3: guarda (o limpia) la salida de audio de un perfil. Vacío
-  // = "No tocar". Devuelve la lista al día para re-renderizar.
-  async function setProfileAudioFlow(name, endpointId) {
-    if (state.displaysBusy) return;
-    state.displaysBusy = true;
-    renderProfiles();
-    try {
-      let profiles;
-      if (!endpointId) {
-        profiles = await invoke('displays_clear_profile_audio', { name });
-        setStatus(`DISPLAYS · "${name}": audio en No tocar`, { force: true });
-      } else {
-        const out = (state.audioOutputs || []).find((o) => o.endpointId === endpointId);
-        const friendlyName = out ? out.friendlyName : '';
-        profiles = await invoke('displays_set_profile_audio', { name, endpointId, friendlyName });
-        setStatus(`DISPLAYS · "${name}": sonido a "${friendlyName || 'esa salida'}"`, { force: true });
-      }
-      state.displaysProfiles = Array.isArray(profiles) ? profiles : [];
-    } catch (err) {
-      showDisplaysError(err);
-    } finally {
-      state.displaysBusy = false;
-      renderProfiles();
     }
   }

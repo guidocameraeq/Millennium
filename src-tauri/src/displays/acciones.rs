@@ -37,32 +37,444 @@
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 
-use monarch::Accion;
+use std::time::{Duration, Instant};
 
 use windows::core::PCWSTR;
+use windows::core::BOOL;
+use windows::Win32::Devices::Display::{
+    DisplayConfigGetDeviceInfo, DisplayConfigSetDeviceInfo,
+    DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO, DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
+    DISPLAYCONFIG_DEVICE_INFO_TYPE, DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO, DISPLAYCONFIG_PATH_INFO,
+};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW,
+    SW_SHOWNORMAL, WM_CLOSE,
+};
+
+use super::cola::Ejecutor;
+use super::escenas::se_puede_cerrar;
 
 /// Flag de `CreateProcess` para no abrir ventana de consola al lanzar un `.exe`.
 /// Constante estable de Win32 (`winbase.h`); se hardcodea para no tipar el
 /// `PROCESS_CREATION_FLAGS` del crate `windows` solo para esto.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Corre una lista de acciones EN ORDEN, best-effort. Pensada para llamarse desde
-/// un contexto bloqueante (`spawn_blocking` / watchdog / arranque), igual que
-/// `audio::aplicar_salida`: las llamadas COM y el `spawn` van en línea.
-pub fn ejecutar(acciones: &[Accion]) {
-    for accion in acciones {
-        match accion {
-            Accion::Lanzar { destino, args } => lanzar(destino, args),
-            Accion::Volumen { nivel } => fijar_volumen(*nivel),
+/// Los pasos de verdad, para la cola de acciones (`cola.rs`): corre en el hilo de la cola, así
+/// que las llamadas COM y el `spawn` van en línea. Un paso que falla se loguea y la cola sigue.
+pub struct EjecutorReal;
+
+impl Ejecutor for EjecutorReal {
+    fn lanzar(&mut self, destino: &str, args: &[String]) {
+        lanzar(destino, args);
+    }
+
+    fn volumen(&mut self, nivel: u8) {
+        fijar_volumen(nivel);
+    }
+
+    fn cerrar(&mut self, exe: &str) {
+        cerrar(exe);
+    }
+
+    fn hdr(&mut self, pantalla: &str, prender: bool) {
+        super::hdr::correr_hdr(&mut HdrDeWindows, pantalla, prender);
+    }
+}
+
+// ── HDR (encargo 07 de escenas) ──────────────────────────────────────────────────────
+//
+// Sondeado antes de escribir (doctrina "Sondar Win32"; URLs y fecha en la evidencia del
+// encargo 07): el crate `windows` 0.60 trae `DisplayConfigSetDeviceInfo`, la lectura
+// `GET_ADVANCED_COLOR_INFO` (9) y el tipo `SET_ADVANCED_COLOR_STATE` (10), pero NO los de
+// Windows 11 24H2: `GET_ADVANCED_COLOR_INFO_2` (15) y `SET_HDR_STATE` (16). Esos se definen a
+// mano con el layout de `wingdi.h` (espejo mingw-w64), con su tamaño fijado abajo.
+//
+// Lectura: primero `_INFO_2` (24H2; "prendido" = interruptor HDR del usuario o `activeColorMode`
+// HDR, nunca el color avanzado a secas, que en 24H2 puede ser ACM sin HDR) y, si Windows no la
+// conoce, la vieja (`advancedColorEnabled`).
+// La lógica (qué pantalla, si soporta, pedir y re-leer) está en `hdr.rs`; acá solo las llamadas.
+// Solo toca el HDR de UNA pantalla: no pasa por `SetDisplayConfig` ni por el motor.
+
+/// `wingdi.h`: `DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2` (24H2).
+const TIPO_GET_ADVANCED_COLOR_INFO_2: DISPLAYCONFIG_DEVICE_INFO_TYPE =
+    DISPLAYCONFIG_DEVICE_INFO_TYPE(15);
+/// `wingdi.h`: `DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE` (24H2).
+const TIPO_SET_HDR_STATE: DISPLAYCONFIG_DEVICE_INFO_TYPE = DISPLAYCONFIG_DEVICE_INFO_TYPE(16);
+/// `wingdi.h`: `DISPLAYCONFIG_ADVANCED_COLOR_MODE_HDR` (SDR = 0, WCG = 1, HDR = 2).
+const MODO_DE_COLOR_HDR: i32 = 2;
+/// `wingdi.h`: el bit de path activo de `DISPLAYCONFIG_PATH_INFO.flags`.
+const PATH_ACTIVO: u32 = 0x0000_0001;
+
+/// `DISPLAYCONFIG_SET_HDR_STATE` y `DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE` tienen la misma
+/// forma: el encabezado y un `UINT32` cuyo bit 0 es `enableHdr` / `enableAdvancedColor`.
+#[repr(C)]
+struct PedidoDeColor {
+    header: DISPLAYCONFIG_DEVICE_INFO_HEADER,
+    valor: u32,
+}
+
+/// `DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2`. Bits de `valor`, del 0 para arriba:
+/// advancedColorSupported, advancedColorActive, reserved1, advancedColorLimitedByPolicy,
+/// highDynamicRangeSupported (4), highDynamicRangeUserEnabled (5), wideColorSupported,
+/// wideColorUserEnabled.
+#[repr(C)]
+struct InfoDeColor2 {
+    header: DISPLAYCONFIG_DEVICE_INFO_HEADER,
+    valor: u32,
+    color_encoding: i32,
+    bits_per_color_channel: u32,
+    active_color_mode: i32,
+}
+
+// El tamaño que espera Windows: encabezado de 20 bytes más los campos. Si el layout no da, no
+// compila (mejor que mandarle a Windows un paquete torcido).
+const _: () = assert!(std::mem::size_of::<DISPLAYCONFIG_DEVICE_INFO_HEADER>() == 20);
+const _: () = assert!(std::mem::size_of::<PedidoDeColor>() == 24);
+const _: () = assert!(std::mem::size_of::<InfoDeColor2>() == 36);
+
+struct HdrDeWindows;
+
+impl HdrDeWindows {
+    /// El path activo de una pantalla, recién leído (el LUID puede cambiar entre acciones).
+    fn path_de(id: &monarch::DisplayId) -> Option<DISPLAYCONFIG_PATH_INFO> {
+        let foto = super::enumerate::query_active_only_topology().ok()?;
+        foto.raw.paths.into_iter().find(|p| {
+            p.flags & PATH_ACTIVO != 0
+                && super::win32_types::luid_to_u64(
+                    p.targetInfo.adapterId.HighPart,
+                    p.targetInfo.adapterId.LowPart,
+                ) == id.adapter_luid
+                && p.targetInfo.id == id.target_id
+        })
+    }
+
+    fn encabezado(
+        path: &DISPLAYCONFIG_PATH_INFO,
+        tipo: DISPLAYCONFIG_DEVICE_INFO_TYPE,
+        size: usize,
+    ) -> DISPLAYCONFIG_DEVICE_INFO_HEADER {
+        DISPLAYCONFIG_DEVICE_INFO_HEADER {
+            r#type: tipo,
+            size: size as u32,
+            adapterId: path.targetInfo.adapterId,
+            id: path.targetInfo.id,
         }
     }
+
+    /// La lectura de 24H2. `None` si este Windows no la conoce.
+    fn leer_24h2(path: &DISPLAYCONFIG_PATH_INFO) -> Option<super::hdr::EstadoHdr> {
+        let mut info = InfoDeColor2 {
+            header: Self::encabezado(
+                path,
+                TIPO_GET_ADVANCED_COLOR_INFO_2,
+                std::mem::size_of::<InfoDeColor2>(),
+            ),
+            valor: 0,
+            color_encoding: 0,
+            bits_per_color_channel: 0,
+            active_color_mode: 0,
+        };
+        // SAFETY: `info` es `repr(C)`, empieza con el encabezado y su `size` es el del struct
+        // entero: Windows escribe adentro de lo nuestro y nada más.
+        let estado = unsafe { DisplayConfigGetDeviceInfo(&mut info.header) };
+        if estado != 0 {
+            return None;
+        }
+        // "Prendido" = el interruptor "Usar HDR" de Configuración (bit 5) o el modo activo en
+        // HDR: así "apagar" no da "ya estaba" con el interruptor prendido y el modo sin HDR.
+        Some(super::hdr::EstadoHdr {
+            soportado: info.valor & (1 << 4) != 0,
+            prendido: info.valor & (1 << 5) != 0 || info.active_color_mode == MODO_DE_COLOR_HDR,
+        })
+    }
+
+    /// La lectura de siempre (antes de 24H2, color avanzado = HDR). Mismo molde que `apply.rs`.
+    fn leer_vieja(path: &DISPLAYCONFIG_PATH_INFO) -> Option<super::hdr::EstadoHdr> {
+        let mut info = DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO::default();
+        info.header = Self::encabezado(
+            path,
+            DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
+            std::mem::size_of::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>(),
+        );
+        // SAFETY: struct del crate con su `size`; la union se lee por `value` (como `apply.rs`)
+        // para no depender del layout de bitfields del binding.
+        unsafe {
+            if DisplayConfigGetDeviceInfo(&mut info.header) != 0 {
+                return None;
+            }
+            let bits = info.Anonymous.value;
+            Some(super::hdr::EstadoHdr {
+                soportado: bits & 1 != 0,
+                prendido: bits & (1 << 1) != 0,
+            })
+        }
+    }
+}
+
+impl super::hdr::PantallasHdr for HdrDeWindows {
+    fn prendidas(&mut self) -> Result<Vec<(monarch::DisplayId, String)>, String> {
+        let foto = super::enumerate::query_active_only_topology().map_err(|e| e.to_string())?;
+        Ok(foto
+            .displays
+            .into_iter()
+            .filter(|d| d.is_active)
+            .map(|d| (d.id, d.friendly_name))
+            .collect())
+    }
+
+    fn leer(&mut self, id: &monarch::DisplayId) -> Option<super::hdr::EstadoHdr> {
+        let path = Self::path_de(id)?;
+        Self::leer_24h2(&path).or_else(|| Self::leer_vieja(&path))
+    }
+
+    fn pedir(
+        &mut self,
+        id: &monarch::DisplayId,
+        prender: bool,
+        llamada: super::hdr::Llamada,
+    ) -> i32 {
+        let Some(path) = Self::path_de(id) else {
+            return -1;
+        };
+        let tipo = match llamada {
+            super::hdr::Llamada::Nueva => TIPO_SET_HDR_STATE,
+            super::hdr::Llamada::Vieja => DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
+        };
+        let pedido = PedidoDeColor {
+            header: Self::encabezado(&path, tipo, std::mem::size_of::<PedidoDeColor>()),
+            valor: u32::from(prender),
+        };
+        // SAFETY: `pedido` es `repr(C)`, empieza con el encabezado y su `size` es el del struct
+        // entero; Windows solo lo lee.
+        unsafe { DisplayConfigSetDeviceInfo(&pedido.header) }
+    }
+
+    fn dormir(&mut self, dur: Duration) {
+        std::thread::sleep(dur);
+    }
+}
+
+// ── Cerrar un programa ───────────────────────────────────────────────────────
+
+/// Cuánto se espera, después del cierre amable, a que el programa se vaya.
+const ESPERA_DE_CIERRE: Duration = Duration::from_secs(5);
+
+/// Cierre amable: le manda `WM_CLOSE` a las ventanas visibles de los procesos de `exe`, espera
+/// hasta 5 s y, si alguno sigue vivo, lo dice en el log. No termina ningún proceso: ni
+/// `TerminateProcess` ni nada parecido. Un programa que se va a la bandeja con la X o que corre
+/// como administrador puede no cerrarse; queda en el log.
+fn cerrar(exe: &str) {
+    let exe = exe.trim().to_lowercase();
+    // La lista prohibida se pregunta de nuevo acá: un displays.json tocado a mano no pasa por
+    // la validación del guardado.
+    if !se_puede_cerrar(&exe, &nombre_de_esta_app()) {
+        crate::runtime_log::warn(format!("[displays] no se cierra «{exe}»: está prohibido"));
+        return;
+    }
+    let pids = pids_de(&exe);
+    if pids.is_empty() {
+        crate::runtime_log::info(format!("[displays] cerrar: «{exe}» no estaba abierto"));
+        return;
+    }
+    let mut avisadas = 0usize;
+    for (hwnd, pid) in ventanas_visibles() {
+        if pids.contains(&pid) {
+            // SAFETY: `hwnd` salió recién de EnumWindows; si ya no existe, PostMessageW devuelve error.
+            let ok = unsafe { PostMessageW(Some(hwnd), WM_CLOSE,WPARAM(0), LPARAM(0)) }.is_ok();
+            if ok {
+                avisadas += 1;
+            }
+        }
+    }
+    crate::runtime_log::info(format!(
+        "[displays] cerrar «{exe}»: cierre amable a {avisadas} ventana/s"
+    ));
+    // Sin ventana a la que avisar (Steam en la bandeja, un programa como administrador) no hay
+    // nada que esperar: se deja dicho y la cola sigue.
+    if avisadas == 0 {
+        crate::runtime_log::warn(format!("[displays] no cerró: {exe} (sin ventana a la que avisar)"));
+        return;
+    }
+    let limite = Instant::now() + ESPERA_DE_CIERRE;
+    while Instant::now() < limite {
+        if pids_de(&exe).is_empty() {
+            crate::runtime_log::info(format!("[displays] cerrado: «{exe}»"));
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    if pids_de(&exe).is_empty() {
+        crate::runtime_log::info(format!("[displays] cerrado: «{exe}»"));
+    } else {
+        crate::runtime_log::warn(format!("[displays] no cerró: {exe}"));
+    }
+}
+
+/// El nombre del ejecutable de esta misma app, en minúsculas (aunque lo hayan renombrado).
+pub fn nombre_de_esta_app() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
+        .unwrap_or_default()
+}
+
+
+// ── Dónde están Steam y Chrome ───────────────────────────────────────────────
+
+/// La carpeta de instalación de Steam: el registro (HKCU `SteamPath`; HKLM `InstallPath`, de 32
+/// y de 64 bits) y, de último, la ruta de siempre. `None` si no hay ninguna que exista.
+pub fn carpeta_de_steam() -> Option<std::path::PathBuf> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    let mut candidatas: Vec<String> = Vec::new();
+    let claves = [
+        (HKEY_CURRENT_USER, r"SOFTWARE\Valve\Steam", "SteamPath"),
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam", "InstallPath"),
+    ];
+    for (hive, sub, valor) in claves {
+        if let Ok(clave) = RegKey::predef(hive).open_subkey(sub) {
+            if let Ok(ruta) = clave.get_value::<String, _>(valor) {
+                candidatas.push(ruta);
+            }
+        }
+    }
+    candidatas.push(r"C:\Program Files (x86)\Steam".to_string());
+    candidatas
+        .into_iter()
+        .map(|ruta| std::path::PathBuf::from(ruta.trim()))
+        .find(|ruta| ruta.join("steamapps").is_dir())
+}
+
+/// La ruta de `chrome.exe`: App Paths (HKCU y HKLM) y, si no, las carpetas de siempre.
+pub fn ruta_de_chrome() -> Option<std::path::PathBuf> {
+    let mut candidatas: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(ruta) = buscar_app_paths("chrome.exe") {
+        candidatas.push(ruta.into());
+    }
+    for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+        if let Some(base) = std::env::var_os(variable) {
+            candidatas.push(
+                std::path::PathBuf::from(base)
+                    .join("Google")
+                    .join("Chrome")
+                    .join("Application")
+                    .join("chrome.exe"),
+            );
+        }
+    }
+    candidatas.into_iter().find(|ruta| ruta.is_file())
+}
+
+/// El texto del `Local State` de Chrome (donde están sus cuentas). `None` si no se puede leer.
+pub fn local_state_de_chrome() -> Option<String> {
+    let base = std::env::var_os("LOCALAPPDATA")?;
+    let ruta = std::path::PathBuf::from(base)
+        .join("Google")
+        .join("Chrome")
+        .join("User Data")
+        .join("Local State");
+    std::fs::read_to_string(ruta).ok()
+}
+
+/// Un proceso vivo: su id y el nombre de su `.exe` (sin ruta, en minúsculas).
+struct Proceso {
+    pid: u32,
+    exe: String,
+}
+
+fn procesos() -> Vec<Proceso> {
+    let mut lista = Vec::new();
+    // SAFETY: la foto de procesos es un handle propio que se cierra al salir; `entrada` lleva su
+    // `dwSize` como pide la API.
+    unsafe {
+        let Ok(foto) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return lista;
+        };
+        let mut entrada = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        if Process32FirstW(foto, &mut entrada).is_ok() {
+            loop {
+                let largo = entrada
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entrada.szExeFile.len());
+                lista.push(Proceso {
+                    pid: entrada.th32ProcessID,
+                    exe: String::from_utf16_lossy(&entrada.szExeFile[..largo]).to_lowercase(),
+                });
+                if Process32NextW(foto, &mut entrada).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(foto);
+    }
+    lista
+}
+
+fn pids_de(exe: &str) -> Vec<u32> {
+    procesos()
+        .into_iter()
+        .filter(|p| p.exe == exe)
+        .map(|p| p.pid)
+        .collect()
+}
+
+/// Callback de `EnumWindows`: junta las ventanas visibles con el proceso dueño.
+unsafe extern "system" fn juntar_ventana(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    // SAFETY: `lparam` es el puntero al `Vec` que `ventanas_visibles` deja vivo durante la llamada.
+    let lista = &mut *(lparam.0 as *mut Vec<(HWND, u32)>);
+    if IsWindowVisible(hwnd).as_bool() {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        lista.push((hwnd, pid));
+    }
+    BOOL(1)
+}
+
+fn ventanas_visibles() -> Vec<(HWND, u32)> {
+    let mut lista: Vec<(HWND, u32)> = Vec::new();
+    // SAFETY: el puntero al `Vec` solo se usa dentro de esta llamada (EnumWindows es síncrona).
+    unsafe {
+        let _ = EnumWindows(Some(juntar_ventana), LPARAM(&mut lista as *mut _ as isize));
+    }
+    lista
+}
+
+/// Los programas abiertos con alguna ventana visible y con título: `(exe, título)`, un renglón
+/// por ventana. Lo ordena y lo filtra `listas.rs`.
+pub fn programas_con_ventana() -> Vec<(String, String)> {
+    let por_pid: std::collections::HashMap<u32, String> =
+        procesos().into_iter().map(|p| (p.pid, p.exe)).collect();
+    let mut salida = Vec::new();
+    for (hwnd, pid) in ventanas_visibles() {
+        let Some(exe) = por_pid.get(&pid) else {
+            continue;
+        };
+        let mut buffer = [0u16; 256];
+        // SAFETY: `buffer` es propio y GetWindowTextW no escribe más de su largo.
+        let largo = unsafe { GetWindowTextW(hwnd, &mut buffer) };
+        if largo > 0 {
+            let titulo = String::from_utf16_lossy(&buffer[..largo as usize]);
+            salida.push((exe.clone(), titulo));
+        }
+    }
+    salida
 }
 
 // ── Lanzar ───────────────────────────────────────────────────────────────────

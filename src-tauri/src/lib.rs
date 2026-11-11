@@ -620,11 +620,20 @@ pub fn run() {
                         let emisor: displays::Emisor =
                             Box::new(move |nombre, payload| {
                                 let _ = emisor_handle.emit(nombre, payload);
+                                // La bandeja se rearma donde el backend avisa que cambiaron las escenas.
+                                #[cfg(desktop)]
+                                if nombre == displays::EVENTO_ESCENAS {
+                                    app::tray::rearmar_escenas(&emisor_handle);
+                                }
                             });
                         match displays::init(&data_dir, emisor) {
                             Ok(estado) => {
                                 app.manage(estado.clone());
                                 runtime_log::info("[displays] motor de monitores listo");
+
+                                // El submenú de escenas de la bandeja, ahora que hay motor.
+                                #[cfg(desktop)]
+                                app::tray::rearmar_escenas(app.handle());
 
                                 // Displays v2, Fase 1: registrar los atajos
                                 // globales de perfil (si el interruptor general
@@ -721,6 +730,17 @@ pub fn run() {
             app::displays_cmds::displays_clear_profile_audio,
             app::displays_cmds::displays_set_profile_actions,
             app::displays_cmds::displays_clear_profile_actions,
+            app::displays_cmds::displays_list_scenes,
+            app::displays_cmds::displays_scene_draft,
+            app::displays_cmds::displays_save_scene,
+            app::displays_cmds::displays_duplicate_scene,
+            app::displays_cmds::displays_rename_scene,
+            app::displays_cmds::displays_reorder_scenes,
+            app::displays_cmds::displays_test_draft,
+            app::displays_cmds::displays_list_display_modes,
+            app::displays_cmds::displays_list_steam_games,
+            app::displays_cmds::displays_list_chrome_profiles,
+            app::displays_cmds::displays_list_running_programs,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
