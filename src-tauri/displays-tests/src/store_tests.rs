@@ -76,7 +76,8 @@ fn un_archivo_corrupto_tambien_se_resguarda() {
     let dir = carpeta("corrupto");
     let roto = b"{ esto no es json \xff\xfe";
     fs::write(dir.join("displays.json"), roto).unwrap();
-    // El store de siempre se cae a los valores por defecto; el checkpoint conserva los bytes.
+    // Con bytes que ni son UTF-8 el store no abre (el `Result` se ignora); el checkpoint ya se
+    // hizo antes de leer y conserva los bytes tal cual.
     let _ = MillenniumConfigStore::new(&dir);
     assert_eq!(fs::read(dir.join("displays.pre-escenas.json")).unwrap(), roto);
     let _ = fs::remove_dir_all(&dir);

@@ -1029,7 +1029,9 @@ mod estado {
                 perfiles: guard.list_profiles(),
                 ajustes: guard.settings().clone(),
                 huellas: guard.config().display_fingerprints.clone(),
-                actual: guard.get_layout().map_err(|e| e.to_string())?,
+                // Solo los borradores la necesitan: la lista y las respuestas de guardado no
+                // pueden fallar porque Windows rebote justo después de un cambio.
+                actual: guard.get_layout().map_err(|e| e.to_string()),
                 infos: guard.list_displays().unwrap_or_default(),
             })
         }
@@ -1053,20 +1055,21 @@ mod estado {
             nombre: Option<&str>,
         ) -> Result<SceneDraft, String> {
             let i = self.insumos_de_escenas()?;
+            let actual = i.actual.as_ref().map_err(|e| e.clone())?;
             match desde {
-                "current" => Ok(escenas::borrador_actual(&i.actual, &i.huellas, &i.infos)),
-                "blank" => Ok(escenas::borrador_en_blanco(&i.actual, &i.huellas, &i.infos)),
+                "current" => Ok(escenas::borrador_actual(actual, &i.huellas, &i.infos)),
+                "blank" => Ok(escenas::borrador_en_blanco(actual, &i.huellas, &i.infos)),
                 "scene" => {
                     let perfil = buscar_escena(&i.perfiles, nombre)?;
                     Ok(escenas::borrador_de_escena(
-                        perfil, &i.ajustes, &i.actual, &i.huellas, &i.infos,
+                        perfil, &i.ajustes, actual, &i.huellas, &i.infos,
                     ))
                 }
                 "copy" => {
                     let perfil = buscar_escena(&i.perfiles, nombre)?;
                     let copia = copy_name(&perfil.name, &i.perfiles);
                     Ok(escenas::borrador_de_copia(
-                        perfil, &i.ajustes, &i.actual, &i.huellas, &i.infos, copia,
+                        perfil, &i.ajustes, actual, &i.huellas, &i.infos, copia,
                     ))
                 }
                 _ => Err("no sé de dónde armar la escena".to_string()),
@@ -1189,10 +1192,17 @@ mod estado {
                 guard.pending_confirmation_remaining()
             };
 
+            // El sonido de una PRUEBA solo se cambia cuando hay cuenta regresiva que lo devuelva:
+            // si las pantallas ya estaban así, no hay nada pendiente y un cambio de sonido
+            // quedaría para siempre con el borrador sin guardar. Se avisa en el log.
             if let Some(objetivo) = &audio_del_borrador {
-                // Con red solo si el video quedó pendiente: sin cambio de video no hay a qué
-                // volver atrás (mismo criterio que `cargar_perfil`).
-                self.aplicar_audio_objetivo(&borrador.name, objetivo, plazo.is_some());
+                if plazo.is_some() {
+                    self.aplicar_audio_objetivo(&borrador.name, objetivo, true);
+                } else {
+                    crate::runtime_log::info(
+                        "[displays] la prueba no cambia el sonido: las pantallas ya estaban así y no hay cuenta regresiva que lo devuelva",
+                    );
+                }
             }
             diagnostics::log("escena:probada");
             match plazo {
@@ -1813,7 +1823,7 @@ mod estado {
         perfiles: Vec<Profile>,
         ajustes: monarch::AppSettings,
         huellas: Vec<monarch::DisplayFingerprint>,
-        actual: Layout,
+        actual: Result<Layout, String>,
         infos: Vec<monarch::DisplayInfo>,
     }
 
