@@ -105,3 +105,18 @@ pub fn escena_puesta(escenas: &[Profile], actual: &Layout, activa: Option<&str>)
     }
     Some(primera.name.clone())
 }
+
+/// Prefijo del id de cada ítem del submenú "Escenas" de la bandeja.
+pub const PREFIJO_MENU: &str = "tray_escena:";
+
+/// El id de un ítem del menú: su lugar en la lista y el nombre (`tray_escena:<lugar>:<nombre>`).
+pub fn id_de_menu(_lugar: usize, _nombre: &str) -> String {
+    String::new()
+}
+
+/// De un clic en el menú a la escena a aplicar: `None` si el id no es de una escena o si esa
+/// escena ya no existe en `nombres` (la lista de hoy). Manda el nombre; el lugar es el que
+/// tenía en el menú, que pudo haberse corrido si se reordenó.
+pub fn escena_del_menu(_id: &str, _nombres: &[String]) -> Option<String> {
+    None
+}

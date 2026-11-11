@@ -324,3 +324,57 @@ fn la_puesta_se_reconoce_con_el_remapeo_por_edid() {
         Some("Doble".to_string())
     );
 }
+
+// --- el id de los ítems de la bandeja ----------------------------------------------------------
+
+use crate::displays::puesta::{escena_del_menu, id_de_menu, PREFIJO_MENU};
+
+fn nombres(lista: &[&str]) -> Vec<String> {
+    lista.iter().map(|n| n.to_string()).collect()
+}
+
+#[test]
+fn el_id_del_menu_lleva_el_prefijo_el_lugar_y_el_nombre() {
+    assert_eq!(id_de_menu(2, "Jugar"), format!("{PREFIJO_MENU}2:Jugar"));
+}
+
+#[test]
+fn un_clic_sobre_una_escena_que_existe_la_devuelve() {
+    let lista = nombres(&["Trabajo", "Jugar"]);
+    assert_eq!(
+        escena_del_menu(&id_de_menu(1, "Jugar"), &lista),
+        Some("Jugar".to_string())
+    );
+}
+
+#[test]
+fn un_nombre_con_dos_puntos_vuelve_entero() {
+    let lista = nombres(&["Peli: noche"]);
+    assert_eq!(
+        escena_del_menu(&id_de_menu(0, "Peli: noche"), &lista),
+        Some("Peli: noche".to_string())
+    );
+}
+
+#[test]
+fn un_clic_sobre_una_escena_borrada_no_aplica() {
+    let lista = nombres(&["Trabajo"]);
+    assert_eq!(escena_del_menu(&id_de_menu(1, "Jugar"), &lista), None);
+}
+
+#[test]
+fn una_escena_que_cambio_de_lugar_se_sigue_encontrando_por_nombre() {
+    let lista = nombres(&["Jugar", "Trabajo"]);
+    assert_eq!(
+        escena_del_menu(&id_de_menu(1, "Jugar"), &lista),
+        Some("Jugar".to_string())
+    );
+}
+
+#[test]
+fn un_id_que_no_es_de_escena_o_esta_mal_formado_no_aplica() {
+    let lista = nombres(&["Jugar"]);
+    assert_eq!(escena_del_menu("tray_quit", &lista), None);
+    assert_eq!(escena_del_menu("tray_escena:Jugar", &lista), None);
+    assert_eq!(escena_del_menu("tray_escena:x:Jugar", &lista), None);
+}
