@@ -38,6 +38,10 @@ const VISTAS = {
   'esc-editor-apagadas': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-screens tr:nth-child(1) .scene-sw-btn:nth-child(2)', '.scene-screens tr:nth-child(2) .scene-sw-btn:nth-child(2)'],
   // Alto de ventana más grande (ver ALTO): el editor entero en una sola PNG.
   'esc-editor-largo': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit'],
+  'esc-guardar-nueva': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '#scenes-new', '.scene-from-current', '.scene-save'],
+  'esc-duplicar': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-more', '.scene-card:nth-child(2) .scene-dup'],
+  'esc-renombrar': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(3) .scene-more', '.scene-card:nth-child(3) .scene-rename'],
+  'esc-subir': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(3) .scene-up'],
   'esc-probando': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-test'],
   'disp-ajustes': ['[data-action="section-displays"]', '.displays-tab[data-tab="settings"]'],
   'disp-lienzo': ['[data-action="section-displays"]', '.displays-tab[data-tab="canvas"]'],
