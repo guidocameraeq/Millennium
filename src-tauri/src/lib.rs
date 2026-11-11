@@ -728,6 +728,7 @@ pub fn run() {
             app::displays_cmds::displays_rename_scene,
             app::displays_cmds::displays_reorder_scenes,
             app::displays_cmds::displays_test_draft,
+            app::displays_cmds::displays_list_display_modes,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -149,7 +149,7 @@ mod windows_impl {
 
     /// Dos ids son la misma pantalla si son iguales o si comparten un EDID conocido (el
     /// adaptador puede cambiar de LUID entre arranques).
-    fn mismo_monitor(a: &DisplayId, b: &DisplayId) -> bool {
+    pub fn mismo_monitor(a: &DisplayId, b: &DisplayId) -> bool {
         a == b || (a.edid_hash.is_some() && a.edid_hash == b.edid_hash)
     }
 

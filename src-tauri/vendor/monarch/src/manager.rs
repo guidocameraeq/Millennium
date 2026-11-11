@@ -3,8 +3,9 @@ use std::time::{Duration, Instant};
 
 use crate::backend::DisplayBackend;
 use crate::model::{
-    ActionV2, AppConfig, AppSettings, AudioTarget, DisplayId, DisplayInfo, Layout, PerfilAcciones,
-    Profile, DEFAULT_DISPLAY_TOGGLE_SHORTCUT_BASE, DEFAULT_PROFILE_SHORTCUT_BASE,
+    normalize_display_modes, ActionV2, AppConfig, AppSettings, AudioTarget, DisplayId, DisplayInfo,
+    DisplayMode, Layout, PerfilAcciones, Profile, DEFAULT_DISPLAY_TOGGLE_SHORTCUT_BASE,
+    DEFAULT_PROFILE_SHORTCUT_BASE,
 };
 use crate::store::ConfigStore;
 use crate::ManagerError;
@@ -764,8 +765,41 @@ where
             // TAL CUAL. Con `BTreeMap::new()`, cada guardado de ajustes borraría en
             // silencio todos los emojis.
             profile_icons: settings.profile_icons,
+            // TRAMPA #1 también para el encargo 02: los modos recordados se copian TAL CUAL.
+            // Con `BTreeMap::new()`, cada guardado de ajustes borraría los modos de la TV
+            // apagada, que no se pueden volver a leer hasta que se prenda.
+            display_modes: settings.display_modes,
         };
         self.persist_config()
+    }
+
+    /// Anota los modos que Windows reportó para cada pantalla prendida (encargo 02). Cada
+    /// lista se normaliza; una vacía (o que queda vacía) **no toca** lo recordado, y una
+    /// pantalla sin EDID no tiene clave y no se anota. Guarda UNA vez y solo si algo cambió;
+    /// devuelve si cambió. No lo frena una confirmación pendiente: no es una escena.
+    pub fn remember_display_modes(
+        &mut self,
+        seen: &[(DisplayId, String, Vec<DisplayMode>)],
+    ) -> Result<bool, ManagerError> {
+        let mut config = self.config.clone();
+        let mut changed = false;
+        for (display_id, friendly_name, modes) in seen {
+            let Some(key) = display_modes_key(display_id, friendly_name) else {
+                continue;
+            };
+            let modes = normalize_display_modes(modes.clone());
+            if modes.is_empty() {
+                continue;
+            }
+            if config.settings.display_modes.get(&key) != Some(&modes) {
+                config.settings.display_modes.insert(key, modes);
+                changed = true;
+            }
+        }
+        if changed {
+            self.commit_config(config)?;
+        }
+        Ok(changed)
     }
 
     pub fn config(&self) -> &AppConfig {
@@ -978,6 +1012,12 @@ fn fingerprint_for_display(display_id: &DisplayId, friendly_name: Option<&str>) 
         .unwrap_or("")
         .to_ascii_uppercase();
     Some(format!("{edid_hash:016x}:{normalized_name}"))
+}
+
+/// La clave del mapa `display_modes`: la misma huella EDID que guarda `display_fingerprints`
+/// (`edid_fingerprint`). `None` = la pantalla no tiene EDID y sus modos no se recuerdan.
+pub fn display_modes_key(display_id: &DisplayId, friendly_name: &str) -> Option<String> {
+    fingerprint_for_display(display_id, Some(friendly_name))
 }
 
 fn sync_display_fingerprints(config: &mut AppConfig, displays: &[DisplayInfo]) -> bool {
