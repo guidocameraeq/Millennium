@@ -95,6 +95,7 @@ pub fn correr_hdr(io: &mut dyn PantallasHdr, pantalla: &str, prender: bool) -> D
     };
     let (id, nombre) = match buscar(&pedida, &prendidas) {
         Ok(encontrada) => encontrada,
+        Err(_) if true => (pedida.clone(), pantalla.to_string()), // MUTANTE 1
         Err(desenlace) => {
             crate::runtime_log::info(format!(
                 "[displays] HDR: se saltea {pantalla}: {}",
@@ -123,7 +124,7 @@ pub fn correr_hdr(io: &mut dyn PantallasHdr, pantalla: &str, prender: bool) -> D
     }
     for llamada in [Llamada::Nueva, Llamada::Vieja] {
         let codigo = io.pedir(&id, prender, llamada);
-        if quedo_como_se_pidio(io, &id, prender) {
+        if codigo == 0 { // MUTANTE 2: juzga por el código, no re-lee
             crate::runtime_log::info(format!(
                 "[displays] HDR: {que} en {nombre} (llamada {llamada:?}, código {codigo})"
             ));
