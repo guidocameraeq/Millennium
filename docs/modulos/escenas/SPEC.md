@@ -1,6 +1,6 @@
 # SPEC: Escenas de Displays más fáciles de armar — Millennium
 Crear escenas sin aplicarlas, duplicarlas y editarlas en una pantalla más clara.
-- Estado: READY
+- Estado: COMPLETO 2026-11-10
 - Fecha: 2026-11-10
 - Sello del Arquitecto: `arquitecto: 2026-11-10 · kit 3.0.0-rc.6 · chequeos: tamaño ✅ · entorno ✅ · tope ✅ · hash d2c6174ce5c4`
 
