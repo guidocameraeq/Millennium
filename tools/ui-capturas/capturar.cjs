@@ -6,7 +6,8 @@
 //
 //   node tools/ui-capturas/capturar.cjs antes            guarda la referencia (se niega si ya existe; --pisar la reemplaza)
 //   node tools/ui-capturas/capturar.cjs despues          guarda la corrida de hoy
-//   node tools/ui-capturas/capturar.cjs --comparar       captura "despues" y la compara con "antes"
+//   node tools/ui-capturas/capturar.cjs --comparar       captura en una carpeta temporal del sistema (no escribe en el repo) y la compara con "antes"
+//   ... --vistas a,b                                      (con antes, despues o --comparar) limita a esas vistas
 //
 // Por vista guarda el DOM, una PNG y la lista de comandos invoke/listen que la
 // app usó. UI_SRC=<carpeta> apunta a otra copia de src/ (p. ej. el código viejo).
@@ -282,15 +283,14 @@ function comparar(dirDespues, vistas) {
   if (!vistas.length || desconocidas.length) {
     console.error('vistas desconocidas: ' + (desconocidas.join(', ') || '(ninguna indicada)') +
       '. Hay: ' + Object.keys(VISTAS).join(', '));
-    process.exit(2);
+    process.exit(arg === '--comparar' ? 1 : 2);
   }
   if (arg === '--comparar') {
     // Captura en una carpeta temporal del sistema: el árbol del repo queda como está.
     const tmpDespues = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-comparar-'));
     try {
-      if (!(await capturar('despues', tmpDespues, vistas))) process.exit(1);
-      const ok = comparar(tmpDespues, vistas);
-      process.exitCode = ok ? 0 : 1;
+      const capturo = await capturar('despues', tmpDespues, vistas);
+      process.exitCode = capturo && comparar(tmpDespues, vistas) ? 0 : 1;
     } finally {
       try { fs.rmSync(tmpDespues, { recursive: true, force: true }); } catch (_) { /* ya no está */ }
     }
