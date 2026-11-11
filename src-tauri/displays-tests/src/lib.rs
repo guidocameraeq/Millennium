@@ -86,6 +86,10 @@ mod cola_tests;
 #[cfg(test)]
 mod listas_tests;
 
+// La puesta ahora (encargo 04 de escenas): qué escena coincide con las pantallas.
+#[cfg(test)]
+mod puesta_tests;
+
 pub mod displays {
     /// Doble del shim de logging de `displays/mod.rs` (misma firma exacta).
     pub(crate) mod diagnostics {
@@ -111,6 +115,9 @@ pub mod displays {
 
     #[path = "../../../src/displays/modos.rs"]
     pub mod modos;
+
+    #[path = "../../../src/displays/puesta.rs"]
+    pub mod puesta;
 
     #[path = "../../../src/displays/store.rs"]
     pub mod store;
