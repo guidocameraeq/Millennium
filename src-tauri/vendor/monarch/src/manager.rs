@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use crate::backend::DisplayBackend;
 use crate::model::{
-    AppConfig, AppSettings, DisplayId, DisplayInfo, Layout, Profile,
-    DEFAULT_DISPLAY_TOGGLE_SHORTCUT_BASE, DEFAULT_PROFILE_SHORTCUT_BASE,
+    ActionV2, AppConfig, AppSettings, AudioTarget, DisplayId, DisplayInfo, Layout, PerfilAcciones,
+    Profile, DEFAULT_DISPLAY_TOGGLE_SHORTCUT_BASE, DEFAULT_PROFILE_SHORTCUT_BASE,
 };
 use crate::store::ConfigStore;
 use crate::ManagerError;
@@ -14,6 +14,8 @@ struct PendingConfirmation {
     previous_layout: Layout,
     applied_at: Instant,
     timeout: Duration,
+    /// `true` si la confirmación es de una PRUEBA de borrador (`apply_draft`).
+    is_test: bool,
 }
 
 impl PendingConfirmation {
@@ -22,6 +24,7 @@ impl PendingConfirmation {
             previous_layout,
             applied_at: Instant::now(),
             timeout,
+            is_test: false,
         }
     }
 
@@ -34,6 +37,24 @@ impl PendingConfirmation {
             .checked_sub(self.applied_at.elapsed())
             .unwrap_or(Duration::ZERO)
     }
+}
+
+/// Texto exacto que ve Guido cuando una prueba de borrador espera su confirmación.
+pub const PRUEBA_PENDIENTE: &str = "esperando que confirmes la prueba";
+
+/// Una escena completa tal como la guarda `upsert_scene` (módulo escenas, encargo 01):
+/// el layout más todo lo que vive en `AppSettings` por nombre.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SceneData {
+    pub name: String,
+    pub layout: Layout,
+    pub emoji: Option<String>,
+    pub audio: Option<AudioTarget>,
+    pub entrada: Vec<ActionV2>,
+    pub salida: Vec<ActionV2>,
+    pub shortcut: Option<String>,
+    /// Es la escena de arranque (`startup_profile_name`).
+    pub startup: bool,
 }
 
 #[derive(Debug)]
@@ -146,6 +167,13 @@ where
             .map(PendingConfirmation::remaining)
     }
 
+    /// `true` si lo que espera confirmación es una PRUEBA de borrador.
+    pub fn pending_is_test(&self) -> bool {
+        self.pending_confirmation
+            .as_ref()
+            .map_or(false, |pending| pending.is_test)
+    }
+
     pub fn apply_layout(&mut self, layout: Layout) -> Result<(), ManagerError> {
         self.ensure_no_pending_confirmation()?;
         let mut layout = layout;
@@ -236,15 +264,20 @@ where
         self.apply_layout(layout)
     }
 
-    pub fn save_profile(&mut self, name: impl Into<String>) -> Result<(), ManagerError> {
-        self.ensure_no_pending_confirmation()?;
+    /// Guarda el layout de ahora con un nombre. Lo nuevo va AL FINAL (el orden es el que
+    /// eligió Guido). Un nombre que ya existe es un error, salvo con `replace` (el "↻
+    /// actualizar con lo puesto"), que pisa solo el layout de esa escena.
+    pub fn save_profile(
+        &mut self,
+        name: impl Into<String>,
+        replace: bool,
+    ) -> Result<(), ManagerError> {
+        self.ensure_scenes_writable()?;
 
         let name = name.into();
         let name = name.trim();
         if name.is_empty() {
-            return Err(ManagerError::Validation(
-                "profile name cannot be empty".to_string(),
-            ));
+            return Err(nombre_vacio());
         }
 
         let layout = self.backend.get_layout()?;
@@ -259,13 +292,228 @@ where
             .iter_mut()
             .find(|candidate| candidate.name == profile.name)
         {
+            if !replace {
+                return Err(nombre_repetido(&profile.name));
+            }
             *existing = profile;
         } else {
             self.config.profiles.push(profile);
-            self.config.profiles.sort_by(|a, b| a.name.cmp(&b.name));
         }
 
         self.persist_config()
+    }
+
+    /// Crea o edita una escena COMPLETA (layout + sonido + acciones + atajo + emoji +
+    /// arranque) en UN solo guardado, sin tocar ninguna pantalla. `original_name` `None` =
+    /// escena nueva (va al final); `Some` = editar esa (queda en su lugar), y si el nombre
+    /// cambió es además un renombre con todas sus reglas. Devuelve el nombre final.
+    /// Todo o nada: si algo falla no se guarda nada, ni en disco ni en memoria.
+    pub fn upsert_scene(
+        &mut self,
+        original_name: Option<&str>,
+        scene: SceneData,
+    ) -> Result<String, ManagerError> {
+        self.ensure_scenes_writable()?;
+
+        let name = scene.name.trim().to_string();
+        if name.is_empty() {
+            return Err(nombre_vacio());
+        }
+        validate_scene_layout(&scene.layout)?;
+
+        let mut config = self.config.clone();
+        match original_name {
+            Some(original) => {
+                if !config.profiles.iter().any(|p| p.name == original) {
+                    return Err(no_existe(original));
+                }
+                if original != name {
+                    if config.profiles.iter().any(|p| p.name == name) {
+                        return Err(nombre_repetido(&name));
+                    }
+                    rename_in_config(&mut config, original, &name);
+                }
+            }
+            None => {
+                if config.profiles.iter().any(|p| p.name == name) {
+                    return Err(nombre_repetido(&name));
+                }
+            }
+        }
+
+        let shortcut = scene
+            .shortcut
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if let Some(accel) = &shortcut {
+            if let Some(otra) = config
+                .settings
+                .profile_shortcuts
+                .iter()
+                .find(|(n, a)| n.as_str() != name && a.trim().eq_ignore_ascii_case(accel))
+                .map(|(n, _)| n.clone())
+            {
+                return Err(ManagerError::Validation(format!(
+                    "ese atajo ya lo usa la escena \"{otra}\""
+                )));
+            }
+        }
+
+        let mut layout = scene.layout;
+        normalize_primary(&mut layout);
+        match config.profiles.iter_mut().find(|p| p.name == name) {
+            Some(existing) => existing.layout = layout,
+            None => config.profiles.push(Profile {
+                name: name.clone(),
+                layout,
+            }),
+        }
+
+        let settings = &mut config.settings;
+        match shortcut {
+            Some(accel) => {
+                settings.profile_shortcuts.insert(name.clone(), accel);
+            }
+            None => {
+                settings.profile_shortcuts.remove(&name);
+            }
+        }
+        match scene.audio {
+            Some(audio) => {
+                settings.profile_audio.insert(name.clone(), audio);
+            }
+            None => {
+                settings.profile_audio.remove(&name);
+            }
+        }
+        // Una acción de una versión más nueva (`Desconocida`) no se puede guardar: se descarta.
+        let sin_desconocidas = |lista: Vec<ActionV2>| -> Vec<ActionV2> {
+            lista
+                .into_iter()
+                .filter(|accion| !matches!(accion, ActionV2::Desconocida))
+                .collect()
+        };
+        let acciones = PerfilAcciones::desde_v2(
+            sin_desconocidas(scene.entrada),
+            sin_desconocidas(scene.salida),
+        );
+        if acciones.esta_vacia() {
+            settings.profile_actions.remove(&name);
+        } else {
+            settings.profile_actions.insert(name.clone(), acciones);
+        }
+        match scene
+            .emoji
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(emoji) => {
+                settings.profile_icons.insert(name.clone(), emoji.to_string());
+            }
+            None => {
+                settings.profile_icons.remove(&name);
+            }
+        }
+        if scene.startup {
+            settings.startup_profile_name = Some(name.clone());
+        } else if settings.startup_profile_name.as_deref() == Some(name.as_str()) {
+            settings.startup_profile_name = None;
+        }
+
+        self.commit_config(config)?;
+        Ok(name)
+    }
+
+    /// Renombra una escena moviendo, en UN solo guardado, su atajo, sonido, acciones, emoji y
+    /// arranque al nombre nuevo. Mismo lugar en el orden. Renombrar al mismo nombre no
+    /// escribe nada. Devuelve el nombre nuevo (sin espacios de los costados).
+    pub fn rename_scene(&mut self, name: &str, new_name: &str) -> Result<String, ManagerError> {
+        self.ensure_scenes_writable()?;
+
+        let new_name = new_name.trim().to_string();
+        if new_name.is_empty() {
+            return Err(nombre_vacio());
+        }
+        if !self.config.profiles.iter().any(|p| p.name == name) {
+            return Err(no_existe(name));
+        }
+        if new_name == name {
+            return Ok(new_name);
+        }
+        if self.config.profiles.iter().any(|p| p.name == new_name) {
+            return Err(nombre_repetido(&new_name));
+        }
+
+        let mut config = self.config.clone();
+        rename_in_config(&mut config, name, &new_name);
+        self.commit_config(config)?;
+        Ok(new_name)
+    }
+
+    /// Copia completa e independiente: pantallas, sonido, acciones y emoji; NO el atajo ni el
+    /// arranque (un atajo no puede repetirse). Va al final, llamada "X (copia)" o "X (copia
+    /// N)". Un solo guardado. Devuelve el nombre de la copia.
+    pub fn duplicate_scene(&mut self, name: &str) -> Result<String, ManagerError> {
+        self.ensure_scenes_writable()?;
+
+        let original = self
+            .config
+            .profiles
+            .iter()
+            .find(|p| p.name == name)
+            .cloned()
+            .ok_or_else(|| no_existe(name))?;
+        let copia = copy_name(name, &self.config.profiles);
+
+        let mut config = self.config.clone();
+        config.profiles.push(Profile {
+            name: copia.clone(),
+            layout: original.layout,
+        });
+        let settings = &mut config.settings;
+        if let Some(audio) = settings.profile_audio.get(name).cloned() {
+            settings.profile_audio.insert(copia.clone(), audio);
+        }
+        if let Some(acciones) = settings.profile_actions.get(name).cloned() {
+            settings.profile_actions.insert(copia.clone(), acciones);
+        }
+        if let Some(emoji) = settings.profile_icons.get(name).cloned() {
+            settings.profile_icons.insert(copia.clone(), emoji);
+        }
+        self.commit_config(config)?;
+        Ok(copia)
+    }
+
+    /// Fija el orden de las escenas. `names` tiene que ser EXACTAMENTE el conjunto de hoy
+    /// (ni falta, ni sobra, ni se repite una): si la lista cambió mientras se ordenaba, error
+    /// y no se guarda nada.
+    pub fn reorder_scenes(&mut self, names: &[String]) -> Result<(), ManagerError> {
+        self.ensure_scenes_writable()?;
+
+        let mut pedidos: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut actuales: Vec<&str> = self
+            .config
+            .profiles
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        pedidos.sort_unstable();
+        actuales.sort_unstable();
+        if pedidos != actuales {
+            return Err(ManagerError::Validation(
+                "la lista de escenas cambió mientras la ordenabas; volvé a intentar".to_string(),
+            ));
+        }
+
+        let mut config = self.config.clone();
+        config.profiles = names
+            .iter()
+            .filter_map(|n| self.config.profiles.iter().find(|p| &p.name == n).cloned())
+            .collect();
+        self.commit_config(config)
     }
 
     pub fn list_profiles(&self) -> Vec<Profile> {
@@ -283,7 +531,26 @@ where
             .cloned()
             .ok_or_else(|| ManagerError::NotFound(format!("profile '{name}'")))?;
 
-        let mut target_layout = profile.layout;
+        self.apply_target_layout(profile.layout)
+    }
+
+    /// PROBAR un borrador: el MISMO cuerpo que `apply_profile` (validar, normalizar el
+    /// primario, remapear por EDID, `apply_layout`) pero sin buscar por nombre y sin escribir
+    /// nada en `profiles`. Lo que queda pendiente se marca como prueba
+    /// (`pending_is_test`). Si el borrador ya es lo puesto, no hay nada pendiente.
+    pub fn apply_draft(&mut self, layout: Layout) -> Result<(), ManagerError> {
+        self.ensure_no_pending_confirmation()?;
+        self.apply_target_layout(layout)?;
+        if let Some(pending) = self.pending_confirmation.as_mut() {
+            pending.is_test = true;
+        }
+        Ok(())
+    }
+
+    /// El cuerpo común de `apply_profile` y `apply_draft`. Quien llama ya verificó que no
+    /// hay una confirmación pendiente.
+    fn apply_target_layout(&mut self, layout: Layout) -> Result<(), ManagerError> {
+        let mut target_layout = layout;
         target_layout.ensure_valid()?;
         normalize_primary(&mut target_layout);
 
@@ -294,6 +561,25 @@ where
         }
 
         self.apply_layout(target_layout)
+    }
+
+    /// Las pantallas PRENDIDAS de `layout` que Windows no está enumerando hoy (ni por id ni
+    /// por el remapeo por EDID). Solo mira: no toca la topología. Sirve para avisar "no está
+    /// conectada" ANTES de probar un borrador.
+    pub fn unresolved_enabled_outputs(
+        &self,
+        layout: &Layout,
+    ) -> Result<Vec<DisplayId>, ManagerError> {
+        let mut current = self.backend.get_layout()?;
+        normalize_primary(&mut current);
+        let remapped = remap_layout_display_ids(layout, &current);
+        let ids: HashSet<&DisplayId> = current.outputs.iter().map(|o| &o.display_id).collect();
+        Ok(remapped
+            .outputs
+            .iter()
+            .filter(|o| o.enabled && !ids.contains(&o.display_id))
+            .map(|o| o.display_id.clone())
+            .collect())
     }
 
     /// Remap the desired layout onto the current enumeration and strictly validate it. An enabled
@@ -367,6 +653,7 @@ where
     }
 
     pub fn delete_profile(&mut self, name: &str) -> Result<(), ManagerError> {
+        self.ensure_scenes_writable()?;
         let before = self.config.profiles.len();
         self.config.profiles.retain(|profile| profile.name != name);
         if self.config.profiles.len() == before {
@@ -490,8 +777,107 @@ where
         Ok(())
     }
 
+    /// Lo mismo, para los que escriben escenas: durante una PRUEBA el texto es el de Guido
+    /// (`PRUEBA_PENDIENTE`); durante un cambio común, el de siempre.
+    fn ensure_scenes_writable(&self) -> Result<(), ManagerError> {
+        match &self.pending_confirmation {
+            None => Ok(()),
+            Some(pending) if pending.is_test => {
+                Err(ManagerError::Validation(PRUEBA_PENDIENTE.to_string()))
+            }
+            Some(_) => Err(ManagerError::ConfirmationPending),
+        }
+    }
+
     fn persist_config(&self) -> Result<(), ManagerError> {
         self.store.save(&self.config)
+    }
+
+    /// Guarda UNA vez la config ya armada y recién si salió bien la adopta en memoria: un
+    /// error de disco no deja la memoria a medio cambiar.
+    fn commit_config(&mut self, config: AppConfig) -> Result<(), ManagerError> {
+        self.store.save(&config)?;
+        self.config = config;
+        Ok(())
+    }
+}
+
+fn nombre_vacio() -> ManagerError {
+    ManagerError::Validation("poné un nombre para la escena".to_string())
+}
+
+fn nombre_repetido(name: &str) -> ManagerError {
+    ManagerError::Validation(format!("ya hay una escena que se llama \"{name}\""))
+}
+
+fn no_existe(name: &str) -> ManagerError {
+    ManagerError::NotFound(format!("no existe la escena \"{name}\""))
+}
+
+/// Las reglas de un layout para GUARDARLO como escena (los textos son para Guido).
+fn validate_scene_layout(layout: &Layout) -> Result<(), ManagerError> {
+    if layout.enabled_output_count() == 0 {
+        return Err(ManagerError::Validation(
+            "tiene que quedar al menos una pantalla prendida".to_string(),
+        ));
+    }
+    if layout.outputs.iter().any(|o| o.primary && !o.enabled) {
+        return Err(ManagerError::Validation(
+            "la pantalla principal tiene que estar prendida".to_string(),
+        ));
+    }
+    let principales = layout
+        .outputs
+        .iter()
+        .filter(|o| o.enabled && o.primary)
+        .count();
+    if principales != 1 {
+        return Err(ManagerError::Validation(
+            "elegí una sola pantalla principal".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Mueve de `from` a `to` TODO lo que cuelga del nombre de una escena: el perfil mismo (queda
+/// en su lugar), atajo, sonido, acciones, emoji y la escena de arranque. Quien llama ya
+/// verificó que `from` existe y que `to` está libre.
+fn rename_in_config(config: &mut AppConfig, from: &str, to: &str) {
+    if let Some(profile) = config.profiles.iter_mut().find(|p| p.name == from) {
+        profile.name = to.to_string();
+    }
+    let settings = &mut config.settings;
+    if let Some(value) = settings.profile_shortcuts.remove(from) {
+        settings.profile_shortcuts.insert(to.to_string(), value);
+    }
+    if let Some(value) = settings.profile_audio.remove(from) {
+        settings.profile_audio.insert(to.to_string(), value);
+    }
+    if let Some(value) = settings.profile_actions.remove(from) {
+        settings.profile_actions.insert(to.to_string(), value);
+    }
+    if let Some(value) = settings.profile_icons.remove(from) {
+        settings.profile_icons.insert(to.to_string(), value);
+    }
+    if settings.startup_profile_name.as_deref() == Some(from) {
+        settings.startup_profile_name = Some(to.to_string());
+    }
+}
+
+/// "X (copia)", y si existe "X (copia 2)", "X (copia 3)"… el primero libre.
+pub fn copy_name(base: &str, profiles: &[Profile]) -> String {
+    let libre = |candidato: &str| !profiles.iter().any(|p| p.name == candidato);
+    let primero = format!("{base} (copia)");
+    if libre(&primero) {
+        return primero;
+    }
+    let mut n = 2u32;
+    loop {
+        let candidato = format!("{base} (copia {n})");
+        if libre(&candidato) {
+            return candidato;
+        }
+        n += 1;
     }
 }
 
@@ -1143,7 +1529,7 @@ mod tests {
     fn save_and_apply_profile_round_trip() {
         let (mut manager, backend, _) = build_manager();
 
-        manager.save_profile("dual").unwrap();
+        manager.save_profile("dual", false).unwrap();
         manager.toggle_display(&sample_display_id(2)).unwrap();
         manager.confirm_current_layout().unwrap();
 
@@ -1157,7 +1543,7 @@ mod tests {
     fn applying_matching_profile_is_a_noop() {
         let (mut manager, backend, _) = build_manager();
 
-        manager.save_profile("current").unwrap();
+        manager.save_profile("current", false).unwrap();
         let before = backend.current_layout().unwrap();
 
         manager.apply_profile("current").unwrap();
@@ -1803,7 +2189,7 @@ mod tests {
         let store = MemoryConfigStore::default();
         let mut manager = MonarchDisplayManager::new(backend.clone(), store).unwrap();
 
-        manager.save_profile("dual").unwrap();
+        manager.save_profile("dual", false).unwrap();
         manager.toggle_display(&sample_display_id(2)).unwrap();
         manager.confirm_current_layout().unwrap();
 
@@ -1854,7 +2240,7 @@ mod tests {
     #[test]
     fn delete_profile_removes_saved_profile() {
         let (mut manager, _, _) = build_manager();
-        manager.save_profile("dual").unwrap();
+        manager.save_profile("dual", false).unwrap();
         manager.delete_profile("dual").unwrap();
         assert!(manager.list_profiles().is_empty());
     }
