@@ -80,7 +80,7 @@ const CHECKPOINT_BASE: &str = "displays.pre-escenas";
 /// escribir sin red.
 fn checkpoint_pre_escenas(data_dir: &Path) -> Result<(), ManagerError> {
     let (origen, destino) = rutas_de_checkpoint(data_dir);
-    if !origen.exists() {
+    if destino.exists() || !origen.exists() {
         return Ok(());
     }
     std::fs::copy(&origen, &destino).map_err(|e| {
