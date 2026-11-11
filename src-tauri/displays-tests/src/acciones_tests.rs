@@ -60,7 +60,7 @@ fn esperar_va_de_1_a_30() {
 fn cerrar_pide_un_nombre_de_exe_sin_carpeta() {
     let sin_carpeta = "el programa a cerrar va como nombre.exe, sin carpeta";
     for malo in [
-        "C:\Juegos\steam.exe",
+        r"C:\Juegos\steam.exe",
         "carpeta/steam.exe",
         "steam",
         "steam.bat",
@@ -121,5 +121,36 @@ fn cerrar_y_esperar_vuelven_igual_a_la_pantalla() {
             {"tipo": "cerrar", "exe": "steam.exe"},
             {"tipo": "esperar", "segundos": 30}
         ])
+    );
+}
+
+#[test]
+fn la_lista_de_salida_se_valida_igual_que_la_de_entrada() {
+    let con_salida = |salida: serde_json::Value| {
+        let mut borrador = borrador_con(serde_json::json!([]));
+        borrador.salida_v2 = serde_json::from_value(salida).unwrap();
+        datos_de_borrador(&borrador)
+    };
+    let datos = con_salida(serde_json::json!([
+        {"tipo": "esperar", "segundos": 3},
+        {"tipo": "cerrar", "exe": "Steam.exe"}
+    ]))
+    .unwrap();
+    assert_eq!(
+        datos.salida,
+        vec![
+            ActionV2::Esperar { segundos: 3 },
+            ActionV2::Cerrar {
+                exe: "steam.exe".to_string()
+            },
+        ]
+    );
+    assert_eq!(
+        con_salida(serde_json::json!([{"tipo": "cerrar", "exe": "explorer.exe"}])).unwrap_err(),
+        "no se puede cerrar explorer.exe: lo necesita Windows o es esta app"
+    );
+    assert_eq!(
+        con_salida(serde_json::json!([{"tipo": "esperar", "segundos": 0}])).unwrap_err(),
+        "esperar va de 1 a 30 segundos"
     );
 }

@@ -37,8 +37,8 @@ pub struct SceneAudio {
     pub friendly_name: String,
 }
 
-/// Una acción de las listas `entradaV2`/`salidaV2`. Espeja `monarch::ActionV2` más los tipos
-/// que implementan los encargos 03 y 03b: hasta entonces `save_scene` los rechaza.
+/// Una acción de las listas `entradaV2`/`salidaV2`. Espeja `monarch::ActionV2` más `Hdr`
+/// (encargo 03b): hasta entonces `save_scene` lo rechaza.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "tipo", rename_all = "snake_case")]
 pub enum ActionV2Dto {
@@ -114,7 +114,9 @@ pub struct ScenesResult {
 /// Nombre que lleva un borrador nuevo.
 pub const NOMBRE_ESCENA_NUEVA: &str = "Escena nueva";
 
-/// Programas que la acción Cerrar nunca toca: esta app y lo que Windows necesita para andar.
+/// Programas que la acción Cerrar no acepta: esta app y lo que Windows necesita para andar.
+/// Se rechazan al guardar (`exe_a_cerrar`); como un `displays.json` tocado a mano o escrito por
+/// otra versión no pasa por ahí, el ejecutor vuelve a preguntar `exe_prohibido` antes de cerrar.
 pub const EXES_PROHIBIDOS: [&str; 5] = [
     "millennium-clipboard.exe",
     "explorer.exe",
@@ -291,7 +293,7 @@ mod windows_impl {
     }
 
     /// Una acción del editor al vendor. `Ok(None)` = se descarta (una acción que esta versión
-    /// no conoce). Los tipos de los encargos 03/03b todavía no se pueden guardar.
+    /// no conoce). `Hdr` (encargo 03b) todavía no se puede guardar.
     fn accion_a_vendor(dto: &ActionV2Dto) -> Result<Option<ActionV2>, String> {
         match dto {
             ActionV2Dto::Lanzar {
