@@ -57,7 +57,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::cola::Ejecutor;
-use super::escenas::exe_prohibido;
+use super::escenas::se_puede_cerrar;
 
 /// Flag de `CreateProcess` para no abrir ventana de consola al lanzar un `.exe`.
 /// Constante estable de Win32 (`winbase.h`); se hardcodea para no tipar el
@@ -95,7 +95,7 @@ fn cerrar(exe: &str) {
     let exe = exe.trim().to_lowercase();
     // La lista prohibida se pregunta de nuevo acá: un displays.json tocado a mano no pasa por
     // la validación del guardado.
-    if exe.is_empty() || exe_prohibido(&exe) || es_esta_app(&exe) {
+    if !se_puede_cerrar(&exe, &nombre_de_esta_app()) {
         crate::runtime_log::warn(format!("[displays] no se cierra «{exe}»: está prohibido"));
         return;
     }
@@ -117,6 +117,12 @@ fn cerrar(exe: &str) {
     crate::runtime_log::info(format!(
         "[displays] cerrar «{exe}»: cierre amable a {avisadas} ventana/s"
     ));
+    // Sin ventana a la que avisar (Steam en la bandeja, un programa como administrador) no hay
+    // nada que esperar: se deja dicho y la cola sigue.
+    if avisadas == 0 {
+        crate::runtime_log::warn(format!("[displays] no cerró: {exe} (sin ventana a la que avisar)"));
+        return;
+    }
     let limite = Instant::now() + ESPERA_DE_CIERRE;
     while Instant::now() < limite {
         if pids_de(&exe).is_empty() {
@@ -140,11 +146,6 @@ pub fn nombre_de_esta_app() -> String {
         .unwrap_or_default()
 }
 
-/// `true` si `exe` (en minúsculas) es el ejecutable de esta misma app.
-fn es_esta_app(exe: &str) -> bool {
-    let propio = nombre_de_esta_app();
-    !propio.is_empty() && propio == exe
-}
 
 // ── Dónde están Steam y Chrome ───────────────────────────────────────────────
 

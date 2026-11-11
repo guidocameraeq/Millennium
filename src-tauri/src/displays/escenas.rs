@@ -134,6 +134,13 @@ pub fn exe_prohibido(exe: &str) -> bool {
     EXES_PROHIBIDOS.contains(&exe)
 }
 
+/// `true` si se puede mandar el cierre a `exe`: no está vacío, no está en la lista prohibida y no
+/// es el ejecutable de esta misma app (`propio`). Es la guarda que vuelve a mirar el ejecutor.
+pub fn se_puede_cerrar(exe: &str, propio: &str) -> bool {
+    let exe = exe.trim().to_lowercase();
+    !exe.is_empty() && !exe_prohibido(&exe) && exe != propio.trim().to_lowercase()
+}
+
 /// Valida el `.exe` de una acción Cerrar y lo deja como se guarda: sin espacios y en minúsculas.
 /// Nombre pelado (nada de carpetas) y fuera de la lista prohibida.
 pub fn exe_a_cerrar(exe: &str) -> Result<String, String> {
