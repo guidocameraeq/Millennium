@@ -50,6 +50,7 @@ const VISTAS = {
   'esc-probando': ['[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(1) .scene-edit', '.scene-test'],
   // Recorridos que el 05 no ejercía (encargo 06). Los pasos { set } y { mock } los entiende armarHtml.
   'esc-aplicar-aviso': [{ mock: '__MOCK__.windowsPoneOtra=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-apply'],
+  'esc-revertir-aviso': [{ mock: '__MOCK__.windowsPoneOtra=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-apply', '#displays-revert'],
   'esc-guardar-aviso': [{ mock: '__MOCK__.avisoAtajo=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit', '.scene-save'],
   'esc-probar-aviso': [{ mock: '__MOCK__.windowsPoneOtra=true' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '.scene-card:nth-child(2) .scene-edit', '.scene-test'],
   'esc-copia-editor': [{ mock: '__MOCK__.conProyector()' }, '[data-action="section-displays"]', '.displays-tab[data-tab="scenes"]', '#scenes-new', '.scene-from-copy', '.scene-copy-pick[data-name="Película"]'],

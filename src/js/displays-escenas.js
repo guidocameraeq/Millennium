@@ -504,6 +504,8 @@
         } else if (p.kind === 'confirmed' || p.kind === 'reverted') {
           displaysPendingIsTest = false;
           displaysPendingWarnings = [];
+          // Revertido: la resolución que avisaba ya no quedó puesta. Confirmado: el aviso sigue en la lista.
+          if (p.kind === 'reverted') setSceneNotice([]);
         }
         displaysLastShownSec = -1; // que el reloj se reescriba con el texto de PRUEBA
         refreshDisplaysUi();
