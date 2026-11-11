@@ -13,7 +13,9 @@ Lo mecánico lo escribe `tiempos.cjs` desde git; la estimación y el "por qué" 
 | 05 | 2026-11-10 21:22 | 2026-11-10 21:47 | 29 | 9 |
 | 06 | 2026-11-10 23:20 | 2026-11-10 23:38 | 18 | 7 |
 | 07 | 2026-11-10 23:24 | 2026-11-10 23:41 | 21 | 7 |
+| 08 | — | — | 0 | 0 |
 | 91 | — | — | 0 | 0 |
+| 92 | — | — | 0 | 0 |
 
-- Total: 9 encargo(s) · 73 sub-paso(s) · 189 min
+- Total: 11 encargo(s) · 73 sub-paso(s) · 189 min
 <!-- tiempos:fin -->
