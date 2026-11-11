@@ -191,3 +191,140 @@ fn la_vista_sale_con_los_nombres_del_contrato() {
         })
     );
 }
+
+// --- GUARDAR: solo modos de la lista (sub-paso 3) --------------------------------------
+
+fn salida(target: u32, enabled: bool, width: u32, height: u32, refresh_mhz: u32) -> OutputConfig {
+    OutputConfig {
+        display_id: id(target),
+        enabled,
+        position: Position { x: 0, y: 0 },
+        resolution: Resolution { width, height },
+        refresh_rate_mhz: refresh_mhz,
+        primary: target == 1,
+    }
+}
+
+fn tv_con(modos: Vec<DisplayMode>) -> Vec<ModosDePantalla> {
+    vec![ModosDePantalla {
+        id: id(2),
+        nombre: "LG TV".to_string(),
+        conectada: true,
+        activa: false,
+        recordados: true,
+        modos,
+    }]
+}
+
+fn layout_de(salidas: Vec<OutputConfig>) -> Layout {
+    Layout { outputs: salidas }
+}
+
+#[test]
+fn guardar_acepta_un_modo_de_la_lista() {
+    let layout = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    assert_eq!(
+        validar_resoluciones(&layout, None, &tv_con(vec![modo(3840, 2160, 60_000)])),
+        Ok(())
+    );
+}
+
+#[test]
+fn guardar_acepta_la_frecuencia_exacta_de_un_modo_en_hz_enteros() {
+    // Windows lista 60 Hz y la topología trae 59,94: es el mismo modo.
+    let layout = layout_de(vec![salida(2, true, 3840, 2160, 59_940)]);
+    assert_eq!(
+        validar_resoluciones(&layout, None, &tv_con(vec![modo(3840, 2160, 60_000)])),
+        Ok(())
+    );
+}
+
+#[test]
+fn guardar_rechaza_un_modo_que_no_esta_en_la_lista() {
+    let layout = layout_de(vec![salida(2, true, 2560, 1440, 60_000)]);
+    let error = validar_resoluciones(&layout, None, &tv_con(vec![modo(3840, 2160, 60_000)]))
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "LG TV no reporta 2560×1440 a 60 Hz: elegí una de su lista o \"Dejar la que tenga\""
+    );
+}
+
+#[test]
+fn guardar_rechaza_otra_frecuencia_de_la_misma_resolucion() {
+    let layout = layout_de(vec![salida(2, true, 3840, 2160, 120_000)]);
+    assert!(validar_resoluciones(&layout, None, &tv_con(vec![modo(3840, 2160, 60_000)])).is_err());
+}
+
+#[test]
+fn guardar_sin_modos_conocidos_dice_que_hay_que_prenderla() {
+    let layout = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    let error = validar_resoluciones(&layout, None, &tv_con(vec![])).unwrap_err();
+    assert!(error.starts_with("todavía no sé qué resoluciones acepta LG TV"), "{error}");
+    // Y una pantalla que el selector ni conoce, igual.
+    assert!(validar_resoluciones(&layout, None, &[]).is_err());
+}
+
+#[test]
+fn dejar_la_que_tenga_siempre_se_puede_guardar() {
+    let layout = layout_de(vec![salida(2, true, 0, 0, 60_000)]);
+    assert_eq!(validar_resoluciones(&layout, None, &tv_con(vec![])), Ok(()));
+}
+
+#[test]
+fn una_pantalla_apagada_no_se_valida() {
+    let layout = layout_de(vec![salida(2, false, 2560, 1440, 60_000)]);
+    assert_eq!(validar_resoluciones(&layout, None, &tv_con(vec![])), Ok(()));
+}
+
+#[test]
+fn editar_una_escena_de_antes_conserva_su_resolucion_aunque_no_haya_modos() {
+    let original = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    let mismo = original.clone();
+    assert_eq!(validar_resoluciones(&mismo, Some(&original), &tv_con(vec![])), Ok(()));
+    // Pero si la cambia por otra que la TV no reportó, no.
+    let cambiada = layout_de(vec![salida(2, true, 1920, 1080, 60_000)]);
+    assert!(validar_resoluciones(&cambiada, Some(&original), &tv_con(vec![])).is_err());
+}
+
+// --- después de aplicar ----------------------------------------------------------------
+
+#[test]
+fn si_windows_la_dejo_como_se_pidio_no_hay_aviso() {
+    let deseado = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    let quedo = layout_de(vec![salida(2, true, 3840, 2160, 59_940)]);
+    assert!(avisos_tras_aplicar(&deseado, &quedo, &[info(2, "LG TV", true)]).is_empty());
+}
+
+#[test]
+fn si_windows_puso_otra_resolucion_avisa_en_palabras() {
+    let deseado = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    let quedo = layout_de(vec![salida(2, true, 1920, 1080, 59_940)]);
+    assert_eq!(
+        avisos_tras_aplicar(&deseado, &quedo, &[info(2, "LG TV", true)]),
+        vec!["pediste 3840×2160 a 60 Hz para LG TV, pero Windows la dejó en 1920×1080 a 59,94 Hz"
+            .to_string()]
+    );
+}
+
+#[test]
+fn si_windows_puso_otra_frecuencia_tambien_avisa() {
+    let deseado = layout_de(vec![salida(2, true, 3840, 2160, 120_000)]);
+    let quedo = layout_de(vec![salida(2, true, 3840, 2160, 60_000)]);
+    assert_eq!(avisos_tras_aplicar(&deseado, &quedo, &[]).len(), 1);
+}
+
+#[test]
+fn dejar_la_que_tenga_y_las_apagadas_no_se_juzgan() {
+    let deseado = layout_de(vec![salida(1, true, 0, 0, 60_000), salida(2, false, 3840, 2160, 60_000)]);
+    let quedo = layout_de(vec![salida(1, true, 1920, 1080, 60_000)]);
+    assert!(avisos_tras_aplicar(&deseado, &quedo, &[]).is_empty());
+}
+
+#[test]
+fn la_frecuencia_en_palabras() {
+    assert_eq!(texto_hz(60_000), "60");
+    assert_eq!(texto_hz(59_940), "59,94");
+    assert_eq!(texto_hz(59_500), "59,5");
+    assert_eq!(texto_hz(59_999), "60");
+}

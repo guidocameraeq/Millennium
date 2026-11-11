@@ -74,8 +74,8 @@ jobs:
           corridos=$(echo "$salida" | grep -oE '^running [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)
           : "${corridos:=0}"
           echo "Tests corridos: $corridos"
-          if [ "$corridos" -lt 113 ]; then
-            echo "::error::Corrieron $corridos tests (se esperaban 113 o más). Un gate que no ejecuta nada es decoración."
+          if [ "$corridos" -lt 135 ]; then
+            echo "::error::Corrieron $corridos tests (se esperaban 135 o más). Un gate que no ejecuta nada es decoración."
             exit 1
           fi
 

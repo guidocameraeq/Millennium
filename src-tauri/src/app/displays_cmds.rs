@@ -734,3 +734,25 @@ pub(crate) async fn displays_test_draft(
         Err(displays_no_disponible())
     }
 }
+
+// --- Resoluciones por pantalla (módulo escenas, encargo 02) --------------------------
+
+/// El selector de resolución: cada pantalla que Windows ve o que alguna escena nombra, con los
+/// modos que contestó recién o, si está apagada, los que recuerdo.
+#[tauri::command]
+pub(crate) async fn displays_list_display_modes(
+    app: tauri::AppHandle,
+) -> Result<Vec<displays::DisplayModesView>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let estado = estado_displays(&app).ok_or_else(displays_no_disponible)?;
+        return tokio::task::spawn_blocking(move || estado.listar_modos())
+            .await
+            .map_err(|e| format!("displays: la tarea de resoluciones se cayó: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&app);
+        Err(displays_no_disponible())
+    }
+}

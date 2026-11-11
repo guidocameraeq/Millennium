@@ -1059,12 +1059,13 @@ mod estado {
         /// el layout actual): en ese caso no hay confirmación pendiente y no hay
         /// nada que revertir ni perseguir.
         pub fn cargar_perfil(&self, nombre: &str) -> Result<DisplaysSnapshot, String> {
-            let plazo = {
+            let (plazo, deseado) = {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                let deseado = layout_del_perfil(&guard, nombre);
                 guard.apply_profile(nombre).map_err(|e| e.to_string())?;
                 // Si `apply_profile` aplicó de verdad, dejó una confirmación
                 // pendiente; si el perfil ya era el layout actual, no.
-                guard.pending_confirmation_remaining()
+                (guard.pending_confirmation_remaining(), deseado)
             };
 
             match plazo {
@@ -1088,7 +1089,8 @@ mod estado {
                     // Con red: las acciones NO corren todavía. Se dejan pendientes y
                     // corren en `confirm` (si el cambio se auto-revierte, no corren).
                     self.marcar_escena_pendiente(nombre);
-                    self.aplicar_con_red(plazo)
+                    let avisos = self.avisos_de_resolucion(deseado.as_ref());
+                    self.aplicar_con_red_avisando(plazo, avisos)
                 }
             }
         }
@@ -1112,8 +1114,10 @@ mod estado {
             // lo deja Some si `get_layout` rebota, y un pending sin watchdog congela
             // TODO apply futuro (ensure_no_pending_confirmation). Se cae a la red
             // como último recurso para que el pending se resuelva.
+            let deseado;
             let red_de_emergencia = {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                deseado = layout_del_perfil(&guard, nombre);
                 guard.apply_profile(nombre).map_err(|e| e.to_string())?;
                 if !guard.has_pending_confirmation() {
                     // No-op: el perfil ya era el layout actual. Nada que commitear.
@@ -1145,6 +1149,9 @@ mod estado {
                     // Commit inmediato ⇒ el ciclo de escena corre ACÁ.
                     self.correr_ciclo_de_escena(nombre);
                     diagnostics::log("perfil:aplicado_directo");
+                    // Sin cartel (atajo / arranque): si Windows puso otra resolución, el
+                    // aviso queda en el log (`avisos_de_resolucion` lo escribe).
+                    self.avisos_de_resolucion(deseado.as_ref());
                     self.avisar_cambio();
                     Ok(())
                 }
@@ -1157,7 +1164,8 @@ mod estado {
                     // Cae a la red ⇒ el video puede auto-revertirse: las acciones
                     // quedan pendientes y corren en `confirm`, no acá.
                     self.marcar_escena_pendiente(nombre);
-                    self.aplicar_con_red(plazo).map(|_| ())
+                    let avisos = self.avisos_de_resolucion(deseado.as_ref());
+                    self.aplicar_con_red_avisando(plazo, avisos).map(|_| ())
                 }
             }
         }
@@ -1227,6 +1235,17 @@ mod estado {
             original: Option<String>,
         ) -> Result<ScenesResult, String> {
             let datos = escenas::datos_de_borrador(&borrador)?;
+            // Solo modos que la pantalla reportó (o "Dejar la que tenga"). Lee Windows fuera
+            // del lock; la escena original se busca por su nombre de antes de editar.
+            let pantallas = self.pantallas_con_modos()?;
+            let original_layout = match original.as_deref() {
+                Some(o) => {
+                    let guard = self.0.manager.lock().map_err(|_| envenenado())?;
+                    layout_del_perfil(&guard, o)
+                }
+                None => None,
+            };
+            modos::validar_resoluciones(&datos.layout, original_layout.as_ref(), &pantallas)?;
             let nombre = {
                 let mut guard = self.0.manager.lock().map_err(|_| envenenado())?;
                 guard
@@ -1330,8 +1349,12 @@ mod estado {
                         "{nombre} no está conectada: conectala o apagala en la escena para probar"
                     ));
                 }
-                guard.apply_draft(layout).map_err(mensaje_de)?;
+                guard.apply_draft(layout.clone()).map_err(mensaje_de)?;
                 guard.pending_confirmation_remaining()
+            };
+            let avisos = match plazo {
+                Some(_) => self.avisos_de_resolucion(Some(&layout)),
+                None => Vec::new(),
             };
 
             // El sonido de una PRUEBA solo se cambia cuando hay cuenta regresiva que lo devuelva:
@@ -1348,7 +1371,7 @@ mod estado {
             }
             diagnostics::log("escena:probada");
             match plazo {
-                Some(plazo) => self.aplicar_con_red(plazo),
+                Some(plazo) => self.aplicar_con_red_avisando(plazo, avisos),
                 None => {
                     self.avisar_cambio();
                     self.snapshot()
@@ -1519,6 +1542,16 @@ mod estado {
         /// lados; un layout completo no tiene ese lujo. Ante un layout malo, el que
         /// avisa es el usuario (no confirma) y el que revierte es el watchdog.
         fn aplicar_con_red(&self, plazo: Duration) -> Result<DisplaysSnapshot, String> {
+            self.aplicar_con_red_avisando(plazo, Vec::new())
+        }
+
+        /// Lo mismo, con los avisos de resolución (encargo 02) en el `applied`: Windows puso
+        /// otra resolución de la que pidió la escena. Vacío = el aviso de siempre.
+        fn aplicar_con_red_avisando(
+            &self,
+            plazo: Duration,
+            avisos: Vec<String>,
+        ) -> Result<DisplaysSnapshot, String> {
             let despues = match self.foto_cruda() {
                 Ok(foto) => foto,
                 Err(err) => {
@@ -1530,7 +1563,7 @@ mod estado {
                         "[displays] no se pudo leer cómo quedó ({err}); el watchdog queda armado, así que si no confirmás vuelve solo"
                     ));
                     self.armar_watchdog(plazo);
-                    self.avisar_confirmacion(self.payload_aplicado(plazo));
+                    self.avisar_confirmacion(self.payload_aplicado(plazo, &avisos));
                     self.avisar_cambio();
                     return Err(format!(
                         "el cambio se aplicó pero no se pudo leer cómo quedó ({err}). Si la pantalla está bien, confirmá; si no, esperá y vuelve sola."
@@ -1539,7 +1572,7 @@ mod estado {
             };
 
             self.armar_watchdog(plazo);
-            self.avisar_confirmacion(self.payload_aplicado(plazo));
+            self.avisar_confirmacion(self.payload_aplicado(plazo, &avisos));
             self.avisar_cambio();
 
             let mut foto = despues;
@@ -1548,8 +1581,9 @@ mod estado {
         }
 
         /// El aviso `applied`. Si lo pendiente es una PRUEBA de borrador suma `isTest: true`
-        /// (campo opcional: falta = cambio común).
-        fn payload_aplicado(&self, plazo: Duration) -> serde_json::Value {
+        /// (campo opcional: falta = cambio común). Con avisos de resolución suma `warnings`
+        /// (lista de textos para Guido; campo opcional: falta = nada que avisar).
+        fn payload_aplicado(&self, plazo: Duration, avisos: &[String]) -> serde_json::Value {
             let mut payload = serde_json::json!({
                 "kind": "applied",
                 "timeoutMs": plazo.as_millis() as u64,
@@ -1562,6 +1596,9 @@ mod estado {
                 .unwrap_or(false);
             if es_prueba {
                 payload["isTest"] = serde_json::Value::Bool(true);
+            }
+            if !avisos.is_empty() {
+                payload["warnings"] = serde_json::json!(avisos);
             }
             payload
         }
@@ -1711,6 +1748,37 @@ mod estado {
                 &i.ajustes.display_modes,
                 &leidos,
             ))
+        }
+
+        /// Después de aplicar una escena: re-lee lo que Windows dejó (la enumeración de hoy,
+        /// solo las prendidas) y dice en palabras cada pantalla que quedó en otra resolución
+        /// o frecuencia de la elegida. Cada aviso va también al log. Sin resolución elegida
+        /// (todo "Dejar la que tenga") no lee nada.
+        fn avisos_de_resolucion(&self, deseado: Option<&Layout>) -> Vec<String> {
+            let Some(deseado) = deseado else {
+                return Vec::new();
+            };
+            let elige_alguna = deseado
+                .outputs
+                .iter()
+                .any(|o| o.enabled && o.resolution.width > 0 && o.resolution.height > 0);
+            if self.0.mock || !elige_alguna {
+                return Vec::new();
+            }
+            let quedo = match super::enumerate::query_active_only_topology() {
+                Ok(topologia) => topologia,
+                Err(err) => {
+                    crate::runtime_log::warn(format!(
+                        "[displays] no se pudo re-leer la resolución que quedó: {err}"
+                    ));
+                    return Vec::new();
+                }
+            };
+            let avisos = modos::avisos_tras_aplicar(deseado, &quedo.layout, &quedo.displays);
+            for aviso in &avisos {
+                crate::runtime_log::warn(format!("[displays] {aviso}"));
+            }
+            avisos
         }
 
         // --- avisos ----------------------------------------------------------
@@ -2028,6 +2096,15 @@ mod estado {
         huellas: Vec<monarch::DisplayFingerprint>,
         actual: Result<Layout, String>,
         infos: Vec<monarch::DisplayInfo>,
+    }
+
+    /// El layout guardado de una escena (para comparar con lo que quedó o con lo editado).
+    fn layout_del_perfil(manager: &Manager, nombre: &str) -> Option<Layout> {
+        manager
+            .list_profiles()
+            .into_iter()
+            .find(|p| p.name == nombre)
+            .map(|p| p.layout)
     }
 
     fn buscar_escena<'a>(

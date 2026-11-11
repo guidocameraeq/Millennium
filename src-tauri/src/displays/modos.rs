@@ -44,11 +44,15 @@ mod windows_impl {
 
     use monarch::manager::display_modes_key;
     use monarch::model::{normalize_display_modes, DisplayMode};
-    use monarch::{DisplayFingerprint, DisplayId, DisplayInfo, Profile};
+    use monarch::{DisplayFingerprint, DisplayId, DisplayInfo, Layout, OutputConfig, Profile};
 
     use super::{DisplayModeView, DisplayModesView};
     use crate::displays::escenas::mismo_monitor;
     use crate::displays::ids::format_display_id;
+
+    /// Dos frecuencias son la misma si difieren en menos de 1 Hz: Windows lista los modos en
+    /// Hz enteros (60) y la topología trae la exacta (59,94 Hz = 59940 mHz).
+    const TOLERANCIA_MHZ: u32 = 1000;
 
     /// Lo que Windows contestó para una pantalla prendida, ya normalizado.
     #[derive(Debug, Clone)]
@@ -195,5 +199,115 @@ mod windows_impl {
         } else {
             nombre.to_string()
         }
+    }
+
+    /// "60" o "59,94": la frecuencia en palabras para Guido.
+    pub fn texto_hz(refresh_mhz: u32) -> String {
+        if refresh_mhz % 1000 == 0 {
+            return (refresh_mhz / 1000).to_string();
+        }
+        let texto = format!("{:.2}", refresh_mhz as f64 / 1000.0);
+        texto
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .replace('.', ",")
+    }
+
+    fn texto_modo(o: &OutputConfig) -> String {
+        format!(
+            "{}×{} a {} Hz",
+            o.resolution.width,
+            o.resolution.height,
+            texto_hz(o.refresh_rate_mhz)
+        )
+    }
+
+    fn coincide(modo: &DisplayMode, o: &OutputConfig) -> bool {
+        modo.width == o.resolution.width
+            && modo.height == o.resolution.height
+            && modo.refresh_mhz.abs_diff(o.refresh_rate_mhz) < TOLERANCIA_MHZ
+    }
+
+    /// GUARDAR: cada pantalla prendida con una resolución elegida tiene que llevar un modo de
+    /// los que reportó (`pantallas`, lo mismo que ve el selector). "Dejar la que tenga" (0×0)
+    /// siempre vale. También vale la resolución que la escena ya tenía guardada para esa
+    /// pantalla (`original`), sin cambios: así una escena de antes se puede editar aunque su
+    /// pantalla todavía no haya contado sus modos. Las apagadas no se miran: no se aplican.
+    pub fn validar_resoluciones(
+        layout: &Layout,
+        original: Option<&Layout>,
+        pantallas: &[ModosDePantalla],
+    ) -> Result<(), String> {
+        for o in layout.outputs.iter().filter(|o| o.enabled) {
+            if o.resolution.width == 0 && o.resolution.height == 0 {
+                continue;
+            }
+            let ya_la_tenia = original.is_some_and(|l| {
+                l.outputs.iter().any(|v| {
+                    mismo_monitor(&v.display_id, &o.display_id)
+                        && v.resolution == o.resolution
+                        && v.refresh_rate_mhz == o.refresh_rate_mhz
+                })
+            });
+            if ya_la_tenia {
+                continue;
+            }
+            let pantalla = pantallas.iter().find(|p| mismo_monitor(&p.id, &o.display_id));
+            if pantalla.is_some_and(|p| p.modos.iter().any(|m| coincide(m, o))) {
+                continue;
+            }
+            let nombre = pantalla
+                .map(|p| p.nombre.clone())
+                .unwrap_or_else(|| nombre_o_numero("", &o.display_id));
+            if pantalla.map_or(true, |p| p.modos.is_empty()) {
+                return Err(format!(
+                    "todavía no sé qué resoluciones acepta {nombre}: prendela una vez o elegí \"Dejar la que tenga\""
+                ));
+            }
+            return Err(format!(
+                "{nombre} no reporta {}: elegí una de su lista o \"Dejar la que tenga\"",
+                texto_modo(o)
+            ));
+        }
+        Ok(())
+    }
+
+    /// Después de aplicar: para cada pantalla prendida con resolución elegida, ¿Windows la
+    /// dejó así? `quedo` es lo que se re-leyó de Windows; una pantalla que no aparece prendida
+    /// ahí no se juzga acá (eso lo cuenta el apply). Un aviso en palabras por pantalla.
+    pub fn avisos_tras_aplicar(
+        deseado: &Layout,
+        quedo: &Layout,
+        infos: &[DisplayInfo],
+    ) -> Vec<String> {
+        let mut avisos = Vec::new();
+        for o in deseado.outputs.iter().filter(|o| o.enabled) {
+            if o.resolution.width == 0 && o.resolution.height == 0 {
+                continue;
+            }
+            let Some(real) = quedo
+                .outputs
+                .iter()
+                .find(|q| q.enabled && mismo_monitor(&q.display_id, &o.display_id))
+            else {
+                continue;
+            };
+            let igual = real.resolution == o.resolution
+                && real.refresh_rate_mhz.abs_diff(o.refresh_rate_mhz) < TOLERANCIA_MHZ;
+            if igual {
+                continue;
+            }
+            let nombre = infos
+                .iter()
+                .find(|d| mismo_monitor(&d.id, &o.display_id))
+                .map(|d| nombre_o_numero(&d.friendly_name, &d.id))
+                .unwrap_or_else(|| nombre_o_numero("", &o.display_id));
+            avisos.push(format!(
+                "pediste {} para {nombre}, pero Windows la dejó en {}",
+                texto_modo(o),
+                texto_modo(real)
+            ));
+        }
+        avisos
     }
 }
