@@ -164,9 +164,8 @@ const HUELLA = `(() => {
   return out.join('\\n');
 })()`;
 
-async function capturar(destino) {
+async function capturar(destino, dir, vistas) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-capturas-'));
-  const dir = path.join(CAPTURAS, destino);
   fs.mkdirSync(dir, { recursive: true });
   const port = await puertoLibre();
   const perfil = path.join(tmp, 'perfil'); // propio, nunca el de Guido
@@ -183,7 +182,7 @@ async function capturar(destino) {
     await c.llamar('Page.enable');
     await c.llamar('Emulation.setDeviceMetricsOverride',
       { width: 1100, height: 760, deviceScaleFactor: 1, mobile: false });
-    for (const vista of Object.keys(VISTAS)) {
+    for (const vista of vistas) {
       await c.llamar('Page.navigate', { url: aUrl(armarHtml(tmp, vista)) });
       for (let i = 0; i < 100 && (await evaluar(c, 'document.readyState')) !== 'complete'; i++) await dormir(100);
       await dormir(ESPERA_MS);
@@ -231,13 +230,13 @@ function cargaCompleta() {
   return ok;
 }
 
-function comparar() {
+function comparar(dirDespues, vistas) {
   let ok = cargaCompleta();
-  for (const vista of Object.keys(VISTAS)) {
+  for (const vista of vistas) {
     const lf = (s) => s.replace(/\r\n/g, '\n');
     for (const [ext, norm] of [['dom.html', normalizar], ['llamadas.txt', lf], ['estilos.txt', lf], ['fuentes.txt', lf]]) {
       const a = path.join(CAPTURAS, 'antes', vista + '.' + ext);
-      const d = path.join(CAPTURAS, 'despues', vista + '.' + ext);
+      const d = path.join(dirDespues, vista + '.' + ext);
       if (!fs.existsSync(a) || !fs.existsSync(d)) {
         console.error('falta ' + (!fs.existsSync(a) ? a : d));
         ok = false;
@@ -276,19 +275,41 @@ function comparar() {
 (async () => {
   const args = process.argv.slice(2);
   const arg = args[0];
-  if (arg === '--comparar') {
-    if (!(await capturar('despues'))) process.exit(1);
-    process.exit(comparar() ? 0 : 1);
+  // --vistas a,b: solo esas vistas (por defecto, todas).
+  const iv = args.indexOf('--vistas');
+  const vistas = iv >= 0 ? String(args[iv + 1] || '').split(',').filter(Boolean) : Object.keys(VISTAS);
+  const desconocidas = vistas.filter((v) => !VISTAS[v]);
+  if (!vistas.length || desconocidas.length) {
+    console.error('vistas desconocidas: ' + (desconocidas.join(', ') || '(ninguna indicada)') +
+      '. Hay: ' + Object.keys(VISTAS).join(', '));
+    process.exit(2);
   }
-  if (arg === 'despues') process.exit((await capturar('despues')) ? 0 : 1);
+  if (arg === '--comparar') {
+    // Captura en una carpeta temporal del sistema: el árbol del repo queda como está.
+    const tmpDespues = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-comparar-'));
+    try {
+      if (!(await capturar('despues', tmpDespues, vistas))) process.exit(1);
+      const ok = comparar(tmpDespues, vistas);
+      process.exitCode = ok ? 0 : 1;
+    } finally {
+      try { fs.rmSync(tmpDespues, { recursive: true, force: true }); } catch (_) { /* ya no está */ }
+    }
+    return;
+  }
+  const guardar = async (destino) => {
+    const dir = path.join(CAPTURAS, destino);
+    fs.mkdirSync(dir, { recursive: true });
+    return capturar(destino, dir, vistas);
+  };
+  if (arg === 'despues') process.exit((await guardar('despues')) ? 0 : 1);
   if (arg === 'antes') {
     const existe = fs.existsSync(path.join(CAPTURAS, 'antes', 'clip.dom.html'));
     if (existe && args[1] !== '--pisar') {
       console.error('capturas/antes ya existe y es la referencia: no se pisa sin --pisar.');
       process.exit(2);
     }
-    process.exit((await capturar('antes')) ? 0 : 1);
+    process.exit((await guardar('antes')) ? 0 : 1);
   }
-  console.error('uso: capturar.cjs antes [--pisar] | despues | --comparar');
+  console.error('uso: capturar.cjs antes [--pisar] | despues | --comparar  [--vistas a,b]');
   process.exit(2);
 })();
