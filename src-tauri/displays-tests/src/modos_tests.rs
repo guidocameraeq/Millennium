@@ -348,3 +348,12 @@ fn un_hz_entero_de_diferencia_ya_es_otro_modo() {
     let quedo = layout_de(vec![salida(2, true, 3840, 2160, 59_000)]);
     assert_eq!(avisos_tras_aplicar(&deseado, &quedo, &[]).len(), 1);
 }
+
+#[test]
+fn una_lista_vacia_en_el_archivo_no_cuenta_como_recordada() {
+    // Un displays.json editado a mano (o de otra versión) con la lista vacía.
+    let recordados = recordados_de(2, "LG TV", vec![]);
+    let pantallas = pantallas_con_modos(&[info(2, "LG TV", false)], &[], &[], &recordados, &[]);
+    assert!(pantallas[0].modos.is_empty());
+    assert!(!pantallas[0].recordados);
+}

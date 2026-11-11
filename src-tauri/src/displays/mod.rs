@@ -421,10 +421,43 @@ mod lectura_de_modos {
     /// pantalla común reporta decenas a pocos cientos (un modo por profundidad de color).
     const TOPE_DE_MODOS: u32 = 4096;
 
+    /// Qué fuente alimenta a qué pantalla, de los paths activos: si cambia mientras se leen
+    /// los modos, `\\.\DISPLAYn` puede haber pasado a otra pantalla.
+    fn cableado(paths: &[DISPLAYCONFIG_PATH_INFO]) -> Vec<(u64, u32, u64, u32)> {
+        let mut cables: Vec<_> = paths
+            .iter()
+            .filter(|p| p.flags & DISPLAYCONFIG_PATH_ACTIVE_FLAG != 0)
+            .map(|p| {
+                (
+                    luid_to_u64(p.targetInfo.adapterId.HighPart, p.targetInfo.adapterId.LowPart),
+                    p.targetInfo.id,
+                    luid_to_u64(p.sourceInfo.adapterId.HighPart, p.sourceInfo.adapterId.LowPart),
+                    p.sourceInfo.id,
+                )
+            })
+            .collect();
+        cables.sort();
+        cables
+    }
+
     /// Los modos de cada pantalla prendida. Una pantalla cuyo nombre GDI no se puede leer
-    /// queda afuera (sale con lo recordado); un error de la enumeración es error.
+    /// queda afuera (sale con lo recordado); un error de la enumeración es error. Si las
+    /// pantallas cambiaron mientras se leía (p. ej. la escena de arranque se aplicó en el
+    /// medio), la lectura se descarta entera: el `WM_DISPLAYCHANGE` que sigue la repite.
     pub fn leer() -> Result<Vec<ModosLeidos>, ManagerError> {
         let topologia = super::enumerate::query_active_only_topology()?;
+        let leidos = leer_con(&topologia)?;
+        let despues = super::enumerate::query_active_only_topology()?;
+        if cableado(&despues.raw.paths) != cableado(&topologia.raw.paths) {
+            super::diagnostics::log("modos:descartados:cambio_las_pantallas");
+            return Ok(Vec::new());
+        }
+        Ok(leidos)
+    }
+
+    fn leer_con(
+        topologia: &super::win32_types::TopologySnapshot,
+    ) -> Result<Vec<ModosLeidos>, ManagerError> {
         let mut leidos = Vec::new();
         for path in &topologia.raw.paths {
             if path.flags & DISPLAYCONFIG_PATH_ACTIVE_FLAG == 0 {
