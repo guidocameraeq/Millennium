@@ -1,0 +1,299 @@
+/* Millennium Clipboard // GRID — estilos. Displays: pestaña ESCENAS (lista de tarjetas y editor en borrador). */
+/* Hoja suelta: el orden de carga está en index.html. Paleta: las variables de :root, sin colores sueltos. */
+
+/* --- Encabezado de la pestaña -------------------------------------------- */
+.scenes-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.scenes-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--text-bright);
+}
+.scenes-sub, .scenes-note, .scene-hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.scenes-note { margin-top: 12px; }
+.scenes-reason, .scene-reason {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--neon-amber);
+}
+.scenes-view[hidden], .scenes-editor[hidden] { display: none !important; }
+
+/* Selector de origen de ＋ NUEVA ESCENA y líneas de confirmación junto a la tarjeta. */
+.scenes-inline, .scene-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent-soft);
+}
+.scenes-inline[hidden], .scene-inline[hidden], .scene-menu[hidden] { display: none !important; }
+.scene-inline { width: 100%; margin: 10px 0 0; }
+.scene-inline.is-danger {
+  border-color: var(--neon-red);
+  background: rgba(255, 56, 96, 0.08);
+}
+.scene-inline-text { font-size: 12px; color: var(--text-bright); }
+.scene-rename-input, .scene-name-input, .scene-form-input {
+  flex: 1 1 200px;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--app-accent-dim);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 7px 9px;
+}
+.scene-name-input { width: 100%; box-sizing: border-box; }
+.scene-rename-input:focus, .scene-name-input:focus, .scene-form-input:focus {
+  outline: none;
+  border-color: var(--app-accent);
+  box-shadow: 0 0 10px var(--app-accent-glow);
+}
+
+/* --- Tarjetas ------------------------------------------------------------- */
+.scenes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.scene-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--app-accent-dim);
+}
+.scene-card.is-current {
+  border-color: var(--neon-green);
+  box-shadow: 0 0 24px rgba(57, 255, 20, 0.18);
+}
+.scene-card.drag-over { outline: 2px dashed var(--neon-magenta); }
+.scene-handle {
+  cursor: grab;
+  color: var(--text-mute);
+  font-size: 20px;
+  padding: 0 2px;
+  user-select: none;
+}
+.scene-ico {
+  flex: none;
+  width: 44px;
+  text-align: center;
+  font-size: 32px;
+  line-height: 1;
+}
+.scene-mini {
+  position: relative;
+  flex: none;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--grid-line-hot);
+}
+.scene-mini i {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent-soft);
+}
+.scene-mini i.off { border: 1px dashed var(--text-dim); background: transparent; }
+.scene-mini i.pri { border: 2px solid var(--neon-magenta); box-shadow: 0 0 6px var(--neon-magenta-glow); }
+.scene-info { flex: 1 1 240px; min-width: 0; }
+.scene-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-bright);
+}
+.scene-badge {
+  font-size: 10px;
+  letter-spacing: 3px;
+  padding: 3px 8px;
+  background: var(--neon-green);
+  color: var(--bg-base);
+  font-weight: 700;
+}
+.scene-badge[hidden] { display: none !important; }
+.scene-sentence { margin-top: 4px; font-size: 11px; color: var(--text-mute); }
+.scene-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.scene-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text-bright);
+  border: 1px solid var(--app-accent-dim);
+  background: var(--app-accent-soft);
+}
+.scene-chip.good { border-color: var(--neon-green); color: var(--neon-green); }
+.scene-acts { display: flex; flex-direction: column; gap: 6px; min-width: 130px; }
+.scene-acts-row, .scene-moves { display: flex; gap: 6px; }
+.scene-acts-row .modal-btn, .scene-moves .modal-btn { flex: 1; }
+.scene-reason { margin: 0; max-width: 150px; }
+.scene-reason[hidden] { display: none !important; }
+.scene-menu {
+  position: absolute;
+  right: 14px;
+  bottom: -4px;
+  transform: translateY(100%);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  background: var(--bg-deep);
+  border: 1px solid var(--app-accent);
+}
+.scene-menu .modal-btn { border: 0; text-align: left; }
+
+/* --- Editor en borrador --------------------------------------------------- */
+.scene-back-row { margin-bottom: 10px; }
+.scene-banner {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent-soft);
+  color: var(--text-bright);
+}
+.scene-sec {
+  padding: 14px;
+  margin-bottom: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--app-accent-dim);
+}
+.scene-sec-title {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--app-accent);
+}
+.scene-emoji-row, .scene-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.scene-row { margin-top: 0; }
+.scene-emoji { font-size: 20px; letter-spacing: 0; }
+.scene-emoji.is-on, .scene-emoji-none.is-on { background: var(--app-accent-soft); border-color: var(--app-accent); }
+.scene-copy-live { margin-bottom: 8px; }
+.scene-select { max-width: 100%; }
+.scene-canvas {
+  position: relative;
+  height: 260px;
+  margin-top: 8px;
+  overflow: hidden;
+  touch-action: none;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--grid-line-hot);
+}
+.scene-mon {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 11px;
+  padding: 2px;
+  overflow: hidden;
+  cursor: move;
+  user-select: none;
+  color: var(--text-bright);
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent-soft);
+}
+.scene-mon.is-pri { border: 2px solid var(--neon-magenta); box-shadow: 0 0 12px var(--neon-magenta-glow); }
+.scene-mon.is-off { border: 1px dashed var(--text-dim); background: rgba(255, 255, 255, 0.03); color: var(--text-mute); }
+.scene-mon.is-bad { border-color: var(--neon-red); background: rgba(255, 56, 96, 0.3); }
+.scene-screens { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.scene-screens td { padding: 8px 6px; border-top: 1px solid var(--grid-line-hot); vertical-align: middle; }
+.scene-screens tr.is-off td { opacity: 0.6; }
+.scene-sw { display: inline-flex; border: 1px solid var(--app-accent-dim); }
+.scene-sw-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-mute);
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.scene-sw-btn.is-on { background: var(--app-accent); color: var(--bg-base); }
+.scene-sw-btn.is-on.is-off { background: var(--text-dim); color: var(--text-bright); }
+.scene-pri { cursor: pointer; font-size: 12px; }
+.scene-err { margin: 8px 0 0; font-size: 12px; font-weight: bold; color: var(--neon-red); }
+.scene-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.scene-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.scene-col-head { margin: 0 0 4px; font-family: var(--font-display); font-size: 11px; letter-spacing: 3px; color: var(--text-bright); }
+.scene-act {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--app-accent-dim);
+  background: var(--app-accent-soft);
+}
+.scene-act-label { flex: 1; min-width: 0; font-size: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.scene-act-label:hover { color: var(--app-accent); }
+.scene-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent-soft);
+}
+.scene-kbd {
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  border: 1px solid var(--app-accent);
+  background: var(--bg-deep);
+}
+
+/* Barra fija: CANCELAR · PROBAR · GUARDAR. */
+.scene-bar {
+  position: sticky;
+  bottom: -16px; /* el cuerpo tiene 16px de padding abajo: la barra tapa ese hueco */
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--bg-base);
+  border-top: 1px solid var(--app-accent);
+}
+.scene-dirty { flex: 1 1 140px; font-size: 12px; color: var(--neon-amber); }
+.scene-test { color: var(--neon-amber); border-color: var(--neon-amber); }
+.scene-bar .scene-err { margin: 0; }
+@media (max-width: 760px) {
+  .scene-cols { grid-template-columns: 1fr; }
+}
+
+/* El cuerpo de Displays tiene que poder scrollear dentro del marco: así la barra
+   fija del editor queda pegada al borde de abajo del marco y no del contenido. */
+.displays-shell > .modal-body { min-height: 0; }

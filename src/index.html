@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="css/responsive.css" />
   <link rel="stylesheet" href="css/clipboard-modales.css" />
   <link rel="stylesheet" href="css/displays.css" />
+  <link rel="stylesheet" href="css/displays-escenas.css" />
   <link rel="stylesheet" href="css/shell.css" />
 </head>
 <body>
@@ -247,16 +248,16 @@
         </header>
         <!-- Pestañas. Las acciones viven abajo, FUERA de los panes. -->
         <nav class="displays-tabs" id="displays-tabs" role="tablist">
-          <button class="displays-tab is-active" type="button" data-tab="list" role="tab">LISTA</button>
-          <button class="displays-tab" type="button" data-tab="profiles" role="tab">PERFILES</button>
-          <button class="displays-tab" type="button" data-tab="settings" role="tab">AJUSTES</button>
+          <button class="displays-tab is-active" type="button" data-tab="scenes" role="tab">ESCENAS</button>
+          <button class="displays-tab" type="button" data-tab="list" role="tab">LISTA</button>
           <button class="displays-tab" type="button" data-tab="canvas" role="tab">LIENZO</button>
+          <button class="displays-tab" type="button" data-tab="settings" role="tab">AJUSTES</button>
         </nav>
         <div class="modal-body">
           <p class="modal-error" id="displays-error" hidden></p>
 
           <!-- Pane: LISTA (Fase 1/2 — sin cambios de comportamiento) -->
-          <div class="displays-pane" data-pane="list">
+          <div class="displays-pane" data-pane="list" hidden>
             <p class="mono displays-mock-warning" id="displays-mock-warning" hidden>
               ⚠ DATOS DE PRUEBA — estos monitores son falsos (MONARCH_FORCE_MOCK_BACKEND)
             </p>
@@ -264,24 +265,24 @@
             <p class="mono displays-empty" id="displays-empty" hidden>Sin monitores para mostrar.</p>
           </div>
 
-          <!-- Pane: PERFILES (Fase 3) -->
-          <div class="displays-pane" data-pane="profiles" hidden>
-            <div class="displays-profile-save">
-              <input class="displays-profile-name" id="displays-profile-name" type="text"
-                     maxlength="60" placeholder="Nombre del perfil…" autocomplete="off" spellcheck="false" />
-              <button class="modal-btn small accept" type="button" id="displays-save-profile">＋ GUARDAR EL ACTUAL</button>
+          <!-- Pane: ESCENAS (módulo escenas, encargo 05). La lista de tarjetas y el
+               editor en borrador se arman por JS (displays-escenas.js / displays-editor.js). -->
+          <div class="displays-pane" data-pane="scenes">
+            <div class="scenes-view" id="scenes-list-view">
+              <div class="scenes-top">
+                <div>
+                  <h2 class="scenes-title">ESCENAS</h2>
+                  <p class="scenes-sub mono">Cada escena es una forma de tener tus pantallas.</p>
+                </div>
+                <button class="modal-btn small accept" type="button" id="scenes-new">＋ NUEVA ESCENA</button>
+              </div>
+              <div class="scenes-inline" id="scenes-chooser" hidden></div>
+              <p class="mono scenes-reason" id="scenes-block-reason" hidden></p>
+              <ul class="scenes-list" id="scenes-list"></ul>
+              <p class="mono displays-empty" id="scenes-empty" hidden>Todavía no hay escenas. ＋ NUEVA ESCENA arma la primera.</p>
+              <p class="mono scenes-note">La app reconoce qué escena coincide con cómo están tus pantallas, aunque las hayas puesto a mano.</p>
             </div>
-            <!-- Banner de confirmación (pisar / borrar). Tus perfiles son tus datos:
-                 nada se pisa ni se borra sin este OK explícito. -->
-            <div class="displays-confirm-banner" id="displays-profile-confirm" hidden>
-              <span class="mono displays-confirm-text" id="displays-profile-confirm-text">—</span>
-              <span class="displays-confirm-actions">
-                <button class="modal-btn small reject" type="button" id="displays-profile-confirm-yes">SÍ</button>
-                <button class="modal-btn small" type="button" id="displays-profile-confirm-no">NO</button>
-              </span>
-            </div>
-            <ul class="displays-profiles-list" id="displays-profiles-list"></ul>
-            <p class="mono displays-empty" id="displays-profiles-empty" hidden>Todavía no guardaste ningún perfil.</p>
+            <div class="scenes-editor" id="scenes-editor-view" hidden></div>
           </div>
 
           <!-- Pane: AJUSTES (Fase 3) -->
@@ -309,7 +310,7 @@
             <!-- Displays v2, Fase 1: interruptor general de los atajos de perfil -->
             <div class="displays-setting">
               <label class="displays-setting-label">Atajos de teclado por perfil</label>
-              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por perfil en la pestaña PERFILES. Apagado, ninguno funciona.</p>
+              <p class="displays-setting-hint">Interruptor general. Cada atajo se asigna por escena en la pestaña ESCENAS. Apagado, ninguno funciona.</p>
               <div class="displays-setting-row">
                 <label class="sound-toggle">
                   <input type="checkbox" id="displays-shortcuts-enabled" />
@@ -767,6 +768,7 @@
   <script src="js/clipboard.js"></script>
   <script src="js/displays.js"></script>
   <script src="js/displays-escenas.js"></script>
+  <script src="js/displays-editor.js"></script>
   <script src="js/clipboard-modales.js"></script>
   <script src="js/arranque.js"></script>
 </body>

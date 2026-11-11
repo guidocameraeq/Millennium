@@ -1,363 +1,323 @@
-// Millennium Clipboard // GRID — frontend. Displays (2/2): escenas, atajos, ajustes, lienzo y conexión de eventos. Ojo: al final está el ESC global que cierra los modales de Clipboard.
+// Millennium Clipboard // GRID — frontend. Displays (2/2): pestaña ESCENAS (lista de tarjetas), atajos, ajustes, lienzo y conexión de eventos. Ojo: al final está el ESC global que cierra los modales de Clipboard.
 // Script clásico: comparte el ámbito global con los demás de src/js/ (orden en index.html).
+// El editor en borrador de una escena vive en displays-editor.js.
 'use strict';
 
-  // ── Displays v2, Fase 4: editor de escena (acciones por perfil) ──────────
+  // ── Pestaña ESCENAS: lista de tarjetas (contrato: tools/ui-capturas/contrato-escenas.md) ──
 
-  // Qué editores de escena están abiertos (por nombre de perfil). Sobrevive al
-  // re-render por diff: como shortcutCaptureName, es estado de UI local.
-  const sceneEditorOpen = new Set();
+  let scenesData = null;          // SceneView[] de displays_list_scenes; null = todavía no cargadas
+  let scenesShortcutsOn = true;   // interruptor general de atajos (AJUSTES), para el chip "(apagado)"
+  let scenesListenerReady = false;
+  let sceneDragName = null;       // tarjeta que se está arrastrando
+  // Estado de UI de la lista; sobrevive al re-render por diff.
+  const scenesUi = { menu: null, rename: null, confirmDel: null, chooser: null };
 
-  // Etiqueta legible de una acción, para el chip. SIEMPRE por textContent (el
-  // destino puede venir del backend / de lo que tipeó el usuario: nunca innerHTML).
-  function actionLabel(a) {
-    if (!a || typeof a !== 'object') return '?';
-    if (a.tipo === 'volumen') return `🔊 Volumen ${a.nivel}%`;
-    if (a.tipo === 'lanzar') {
-      const d = String(a.destino || '');
-      const low = d.toLowerCase();
-      if (low.includes('steam://open/bigpicture')) return '🎮 Big Picture';
-      if (low.includes('steam://close/bigpicture')) return '⏹ Cerrar Big Picture';
-      const game = low.match(/steam:\/\/rungameid\/(\d+)/);
-      if (game) return `🎮 Juego ${game[1]}`;
-      if (low.includes('chrome')) {
-        const args = Array.isArray(a.args) ? a.args : [];
-        const pd = args.find((x) => typeof x === 'string' && x.startsWith('--profile-directory='));
-        const carpeta = pd ? pd.slice('--profile-directory='.length) : '';
-        return carpeta ? `🍿 Chrome · ${carpeta}` : '🍿 Chrome';
-      }
-      const base = d.split(/[\\/]/).pop() || d;
-      return `▶ ${base}`;
-    }
-    return '?';
+  // Helper mínimo: todo texto entra por textContent (CLAUDE.md regla 6).
+  function mkEl(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
   }
 
-  function mkChipBtn(txt, chipAction, title, disabled) {
-    const b = document.createElement('button');
+  function mkBtn(cls, text, title) {
+    const b = mkEl('button', cls, text);
     b.type = 'button';
-    b.className = 'displays-scene-chip-btn';
-    b.dataset.chipAction = chipAction;
-    b.textContent = txt;
-    b.title = title;
-    if (disabled) b.disabled = true;
+    if (title) b.title = title;
     return b;
   }
 
-  // Rearma los chips de una columna desde la lista de acciones (backend = verdad).
-  function renderSceneChips(ul, acciones, locked) {
-    ul.replaceChildren();
-    if (!acciones.length) {
-      const li = document.createElement('li');
-      li.className = 'displays-scene-empty';
-      li.textContent = '(nada)';
-      ul.appendChild(li);
-      return;
+  // Por qué no se puede tocar algo, en texto visible (no en un tooltip). null = se puede.
+  function sceneBlockReason() {
+    if (!state.displaysPending) return null;
+    return displaysPendingIsTest
+      ? 'esperando que confirmes la prueba'
+      : 'Hay un cambio esperando confirmación.';
+  }
+
+  // Etiqueta legible de una acción (ActionV2) para el chip.
+  function actionLabelV2(a, outputs) {
+    if (!a || typeof a !== 'object') return '?';
+    if (a.tipo === 'volumen') return `🔊 Volumen ${a.nivel}%`;
+    if (a.tipo === 'cerrar') return `✕ Cerrar ${a.exe}`;
+    if (a.tipo === 'esperar') return `⏳ Esperar ${a.segundos} s`;
+    if (a.tipo === 'hdr') {
+      const o = (outputs || []).find((x) => x.displayId === a.pantalla);
+      return `🌈 HDR ${o ? o.name : 'una pantalla'}: ${a.prender ? 'prender' : 'apagar'}`;
     }
-    acciones.forEach((a, idx) => {
-      const li = document.createElement('li');
-      li.className = 'displays-scene-chip';
-      li.dataset.index = String(idx);
-      const label = document.createElement('span');
-      label.className = 'displays-scene-chip-label';
-      label.textContent = actionLabel(a);
-      li.appendChild(label);
-      li.appendChild(mkChipBtn('↑', 'up', 'Subir', locked || idx === 0));
-      li.appendChild(mkChipBtn('↓', 'down', 'Bajar', locked || idx === acciones.length - 1));
-      li.appendChild(mkChipBtn('✕', 'remove', 'Quitar', locked));
-      ul.appendChild(li);
-    });
-  }
-
-  // Guarda las dos listas de un perfil (entrada + salida). Mismo patrón que
-  // setProfileAudioFlow: bloquea, invoca, re-renderiza desde la respuesta.
-  async function setProfileActionsFlow(name, entrada, salida) {
-    if (state.displaysBusy) return;
-    state.displaysBusy = true;
-    renderProfiles();
-    try {
-      const profiles = await invoke('displays_set_profile_actions', { name, entrada, salida });
-      state.displaysProfiles = Array.isArray(profiles) ? profiles : [];
-      setStatus(`DISPLAYS · "${name}": escena actualizada`, { force: true });
-    } catch (err) {
-      showDisplaysError(err);
-    } finally {
-      state.displaysBusy = false;
-      renderProfiles();
-    }
-  }
-
-  // Copia mutable de las acciones actuales del perfil (desde el estado, que es la
-  // última respuesta del backend). Se edita y se manda entero de vuelta.
-  function currentProfileActions(name) {
-    const p = (state.displaysProfiles || []).find((x) => x.name === name);
-    const a = (p && p.actions) ? p.actions : {};
-    return {
-      entrada: Array.isArray(a.entrada) ? a.entrada.slice() : [],
-      salida: Array.isArray(a.salida) ? a.salida.slice() : [],
-    };
-  }
-
-  function addSceneAction(name, which, accion) {
-    if (!accion) return;
-    const cur = currentProfileActions(name);
-    if (!Array.isArray(cur[which])) return;
-    cur[which].push(accion);
-    setProfileActionsFlow(name, cur.entrada, cur.salida);
-  }
-
-  function removeSceneAction(name, which, index) {
-    const cur = currentProfileActions(name);
-    if (!Array.isArray(cur[which]) || index < 0 || index >= cur[which].length) return;
-    cur[which].splice(index, 1);
-    setProfileActionsFlow(name, cur.entrada, cur.salida);
-  }
-
-  function moveSceneAction(name, which, index, delta) {
-    const cur = currentProfileActions(name);
-    const arr = cur[which];
-    if (!Array.isArray(arr)) return;
-    const j = index + delta;
-    if (j < 0 || j >= arr.length) return;
-    const tmp = arr[index]; arr[index] = arr[j]; arr[j] = tmp;
-    setProfileActionsFlow(name, cur.entrada, cur.salida);
-  }
-
-  // Un preset elegido en el <select>: los sin-parámetros se agregan directo; los
-  // que piden datos abren un formulario inline en la columna.
-  function handleScenePreset(li, col, preset) {
-    const name = li.dataset.name;
-    const which = col.dataset.list;
-    if (preset === 'bigpicture') {
-      addSceneAction(name, which, { tipo: 'lanzar', destino: 'steam://open/bigpicture', args: [] });
-      return;
-    }
-    if (preset === 'close_bp') {
-      addSceneAction(name, which, { tipo: 'lanzar', destino: 'steam://close/bigpicture', args: [] });
-      return;
-    }
-    showSceneForm(col, preset);
-  }
-
-  function showSceneForm(col, preset) {
-    const form = col.querySelector('.displays-scene-form');
-    if (!form) return;
-    form.replaceChildren();
-    form.hidden = false;
-    form.dataset.preset = preset;
-    const addInput = (ph, kind) => {
-      const inp = document.createElement(kind === 'area' ? 'textarea' : 'input');
-      if (kind === 'num') { inp.type = 'number'; inp.min = '0'; inp.max = '100'; }
-      else if (kind !== 'area') inp.type = 'text';
-      inp.className = 'displays-scene-input';
-      inp.placeholder = ph;
-      form.appendChild(inp);
-      return inp;
-    };
-    if (preset === 'game') addInput('ID del juego (nº de steam://rungameid)', 'text');
-    else if (preset === 'chrome') {
-      addInput('carpeta de la cuenta (Default, Profile 1…)', 'text');
-      addInput('link (https://…)', 'text');
-    } else if (preset === 'volume') addInput('nivel 0–100', 'num');
-    else if (preset === 'custom') {
-      addInput('programa (.exe / steam://… / .lnk)', 'text');
-      addInput('argumentos (uno por línea)', 'area');
-    }
-    const row = document.createElement('div');
-    row.className = 'displays-scene-form-row';
-    const ok = document.createElement('button');
-    ok.type = 'button';
-    ok.className = 'modal-btn small accept displays-scene-form-ok';
-    ok.textContent = '＋ agregar';
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'modal-btn small displays-scene-form-cancel';
-    cancel.textContent = '✕';
-    row.appendChild(ok);
-    row.appendChild(cancel);
-    form.appendChild(row);
-    const first = form.querySelector('.displays-scene-input');
-    if (first) first.focus();
-  }
-
-  function hideSceneForm(col) {
-    const form = col.querySelector('.displays-scene-form');
-    if (!form) return;
-    form.hidden = true;
-    form.replaceChildren();
-    delete form.dataset.preset;
-  }
-
-  function submitSceneForm(li, col) {
-    const form = col.querySelector('.displays-scene-form');
-    if (!form) return;
-    const preset = form.dataset.preset;
-    const inputs = Array.from(form.querySelectorAll('.displays-scene-input'));
-    const accion = buildPresetAction(preset, inputs);
-    if (!accion) return; // faltó un dato: el aviso lo dio buildPresetAction
-    hideSceneForm(col);
-    addSceneAction(li.dataset.name, col.dataset.list, accion);
-  }
-
-  function buildPresetAction(preset, inputs) {
-    const val = (i) => (inputs[i] ? String(inputs[i].value || '').trim() : '');
-    const warn = (msg) => setStatus(`DISPLAYS · ${msg}`, { priority: 'warn', ttl: 3500 });
-    if (preset === 'game') {
-      const id = val(0).replace(/[^0-9]/g, '');
-      if (!id) { warn('poné el ID del juego'); return null; }
-      return { tipo: 'lanzar', destino: `steam://rungameid/${id}`, args: [] };
-    }
-    if (preset === 'chrome') {
-      const carpeta = val(0);
-      const url = val(1);
-      if (!url) { warn('poné el link'); return null; }
-      const args = [];
-      if (carpeta) args.push(`--profile-directory=${carpeta}`);
-      args.push('--new-window', '--start-fullscreen', url);
-      return { tipo: 'lanzar', destino: 'chrome.exe', args };
-    }
-    if (preset === 'volume') {
-      let n = parseInt(val(0), 10);
-      if (isNaN(n)) { warn('poné un nivel 0–100'); return null; }
-      n = Math.max(0, Math.min(100, n));
-      return { tipo: 'volumen', nivel: n };
-    }
-    if (preset === 'custom') {
-      const destino = val(0);
-      if (!destino) { warn('poné el programa o la URI'); return null; }
-      const raw = inputs[1] ? String(inputs[1].value || '') : '';
-      const args = raw.split('\n').map((s) => s.trim()).filter(Boolean);
-      return { tipo: 'lanzar', destino, args };
-    }
-    return null;
-  }
-
-  function toggleScene(li, name) {
-    const editor = li.querySelector('.displays-scene-editor');
-    if (!editor) return;
-    const abrir = editor.hidden;
-    editor.hidden = !abrir;
-    if (abrir) sceneEditorOpen.add(name);
-    else sceneEditorOpen.delete(name);
-  }
-
-  // Maneja un clic dentro del editor de escena. Devuelve true si lo consumió.
-  function handleSceneClick(el, li, name) {
-    const toggle = el.closest('.displays-scene-toggle');
-    if (toggle) {
-      if (!toggle.disabled) toggleScene(li, name);
-      return true;
-    }
-    const chipBtn = el.closest('.displays-scene-chip-btn');
-    if (chipBtn) {
-      if (!chipBtn.disabled) {
-        const chip = chipBtn.closest('.displays-scene-chip');
-        const col = chipBtn.closest('.displays-scene-col');
-        if (chip && col) {
-          const idx = parseInt(chip.dataset.index, 10);
-          const which = col.dataset.list;
-          const act = chipBtn.dataset.chipAction;
-          if (act === 'remove') removeSceneAction(name, which, idx);
-          else if (act === 'up') moveSceneAction(name, which, idx, -1);
-          else if (act === 'down') moveSceneAction(name, which, idx, 1);
-        }
+    if (a.tipo === 'lanzar') {
+      const d = String(a.destino || '');
+      const low = d.toLowerCase();
+      const et = typeof a.etiqueta === 'string' ? a.etiqueta : '';
+      if (low.includes('steam://open/bigpicture')) return '🎮 Big Picture';
+      if (low.includes('steam://close/bigpicture')) return '⏹ Cerrar Big Picture';
+      const game = low.match(/steam:\/\/rungameid\/(\d+)/);
+      if (game) return `🎮 Juego: ${et || game[1]}`;
+      if (low.includes('chrome')) {
+        if (et) return `🌐 ${et}`;
+        const args = Array.isArray(a.args) ? a.args : [];
+        const pd = args.find((x) => typeof x === 'string' && x.startsWith('--profile-directory='));
+        return pd ? `🌐 Chrome · ${pd.slice('--profile-directory='.length)}` : '🌐 Chrome';
       }
-      return true;
+      return `▶ ${et || d.split(/[\\/]/).pop() || d}`;
     }
-    const okBtn = el.closest('.displays-scene-form-ok');
-    if (okBtn) {
-      const col = okBtn.closest('.displays-scene-col');
-      if (col) submitSceneForm(li, col);
-      return true;
-    }
-    const cancelBtn = el.closest('.displays-scene-form-cancel');
-    if (cancelBtn) {
-      const col = cancelBtn.closest('.displays-scene-col');
-      if (col) hideSceneForm(col);
-      return true;
-    }
-    return false;
+    return '❔ acción que esta versión no conoce';
   }
 
-  // El banner de confirmacion se reusa para pisar y para borrar. Tus perfiles son
-  // tus datos: ninguna de las dos corre sin que aprietes SÍ.
-  function hideProfileConfirm() {
-    pendingProfileAction = null;
-    if (displaysProfileConfirm) displaysProfileConfirm.hidden = true;
+  const SCENE_DEFAULT_W = 1920;
+  const SCENE_DEFAULT_H = 1080;
+
+  // Mini-mapa de pantallas: prendida / apagada (punteada) / principal (marcada).
+  function buildMiniMap(outputs, boxW, boxH) {
+    const wrap = mkEl('div', 'scene-mini');
+    wrap.style.width = `${boxW}px`;
+    wrap.style.height = `${boxH}px`;
+    const list = (outputs || []).map((o) => ({
+      o, x: o.x || 0, y: o.y || 0, w: o.width || SCENE_DEFAULT_W, h: o.height || SCENE_DEFAULT_H,
+    }));
+    if (!list.length) return wrap;
+    const x0 = Math.min(...list.map((b) => b.x));
+    const y0 = Math.min(...list.map((b) => b.y));
+    const x1 = Math.max(...list.map((b) => b.x + b.w));
+    const y1 = Math.max(...list.map((b) => b.y + b.h));
+    const pad = 6;
+    const f = Math.min((boxW - pad * 2) / (x1 - x0), (boxH - pad * 2) / (y1 - y0));
+    const ox = (boxW - (x1 - x0) * f) / 2;
+    const oy = (boxH - (y1 - y0) * f) / 2;
+    list.forEach((b) => {
+      const i = mkEl('i', `${b.o.enabled ? '' : 'off '}${b.o.enabled && b.o.primary ? 'pri' : ''}`.trim());
+      i.title = b.o.name;
+      i.style.left = `${Math.round(ox + (b.x - x0) * f)}px`;
+      i.style.top = `${Math.round(oy + (b.y - y0) * f)}px`;
+      i.style.width = `${Math.max(3, Math.round(b.w * f))}px`;
+      i.style.height = `${Math.max(3, Math.round(b.h * f))}px`;
+      wrap.appendChild(i);
+    });
+    return wrap;
   }
 
-  function askProfileConfirm(action, message) {
-    pendingProfileAction = action;
-    if (displaysProfileConfirmText) displaysProfileConfirmText.textContent = message;
-    if (displaysProfileConfirm) displaysProfileConfirm.hidden = false;
+  function sceneSentence(outputs) {
+    const on = outputs.filter((o) => o.enabled).map((o) => o.name);
+    const off = outputs.filter((o) => !o.enabled).map((o) => o.name);
+    const pri = outputs.find((o) => o.enabled && o.primary);
+    return `Prende: ${on.join(', ') || 'nada'} · Apaga: ${off.join(', ') || 'nada'} · Principal: ${pri ? pri.name : '—'}`;
   }
 
-  async function runPendingProfileAction() {
-    const action = pendingProfileAction;
-    hideProfileConfirm();
-    if (!action) return;
-    if (action.type === 'overwrite') await doSaveProfile(action.name);
-    else if (action.type === 'delete') await doDeleteProfile(action.name);
+  function sceneChips(s) {
+    const chips = [];
+    chips.push({ text: s.audio ? `🔊 ${s.audio.friendlyName}` : '🔊 Audio: no toca' });
+    if (s.shortcut) chips.push({ text: `⌨ ${s.shortcut}${scenesShortcutsOn ? '' : ' (apagado)'}` });
+    const entrada = (s.entradaV2 || []).map((a) => actionLabelV2(a, s.outputs));
+    const salida = (s.salidaV2 || []).map((a) => actionLabelV2(a, s.outputs));
+    if (entrada.length) chips.push({ text: `🎬 Al entrar: ${entrada.join(' · ')}` });
+    if (salida.length) chips.push({ text: `🎬 Al salir: ${salida.join(' · ')}` });
+    if (s.startup) chips.push({ text: '⏻ arranca con Windows', good: true });
+    return chips;
   }
 
-  function saveProfileFlow() {
-    hideProfileConfirm();
-    const typed = (displaysProfileName && displaysProfileName.value || '').trim();
-    if (!typed) {
-      setStatus('DISPLAYS · poné un nombre para el perfil', { priority: 'warn', ttl: 4000 });
-      if (displaysProfileName) displaysProfileName.focus();
-      return;
+  function buildSceneCard(s) {
+    const li = mkEl('li', 'scene-card');
+    li.dataset.name = s.name;
+    li.innerHTML = `
+      <span class="scene-handle" title="Arrastrá para ordenar">⠿</span>
+      <div class="scene-ico"></div>
+      <div class="scene-mini-slot"></div>
+      <div class="scene-info">
+        <div class="scene-name"><span class="scene-name-text"></span><span class="scene-badge" hidden>PUESTA AHORA</span></div>
+        <div class="scene-sentence mono"></div>
+        <div class="scene-chips"></div>
+      </div>
+      <div class="scene-acts">
+        <button class="modal-btn small accept scene-apply" type="button">APLICAR</button>
+        <div class="scene-acts-row">
+          <button class="modal-btn small scene-edit" type="button">EDITAR</button>
+          <button class="modal-btn small scene-more" type="button" title="Más opciones">⋯</button>
+        </div>
+        <div class="scene-moves">
+          <button class="modal-btn small scene-up" type="button" title="Subir">↑</button>
+          <button class="modal-btn small scene-down" type="button" title="Bajar">↓</button>
+        </div>
+        <p class="mono scene-reason" hidden></p>
+      </div>
+      <div class="scene-menu" hidden></div>
+      <div class="scene-inline" hidden></div>`;
+    li.addEventListener('mousedown', (e) => {
+      // Solo se arrastra desde el asa ⠿.
+      li.draggable = !!(e.target.closest && e.target.closest('.scene-handle'));
+    });
+    updateSceneCard(li, s, 0, 1);
+    return li;
+  }
+
+  function updateSceneCard(li, s, idx, total) {
+    const busy = !!state.displaysBusy;
+    const reason = sceneBlockReason();
+    const locked = busy || !!reason;
+    li.classList.toggle('is-current', !!s.isCurrent);
+    setText(li.querySelector('.scene-ico'), s.emoji || '▫');
+    setText(li.querySelector('.scene-name-text'), s.name);
+    li.querySelector('.scene-badge').hidden = !s.isCurrent;
+    setText(li.querySelector('.scene-sentence'), sceneSentence(s.outputs || []));
+    li.querySelector('.scene-mini-slot').replaceChildren(buildMiniMap(s.outputs, 160, 70));
+    li.querySelector('.scene-chips').replaceChildren(...sceneChips(s).map((c) => mkEl('span', c.good ? 'scene-chip good' : 'scene-chip', c.text)));
+
+    const apply = li.querySelector('.scene-apply');
+    apply.disabled = locked || !!s.isCurrent;
+    apply.textContent = s.isCurrent ? 'PUESTA' : 'APLICAR';
+    li.querySelector('.scene-edit').disabled = busy;
+    li.querySelector('.scene-more').disabled = locked;
+    li.querySelector('.scene-up').disabled = locked || idx === 0;
+    li.querySelector('.scene-down').disabled = locked || idx === total - 1;
+    const why = li.querySelector('.scene-reason');
+    why.hidden = !reason;
+    why.textContent = reason || '';
+
+    // Menú ⋯ y la línea de confirmación/renombrar junto a la tarjeta.
+    const menu = li.querySelector('.scene-menu');
+    const abierto = scenesUi.menu === s.name;
+    menu.hidden = !abierto;
+    if (abierto && !menu.firstChild) {
+      menu.replaceChildren(
+        mkBtn('modal-btn small scene-dup', 'DUPLICAR'),
+        mkBtn('modal-btn small scene-rename', 'RENOMBRAR'),
+        mkBtn('modal-btn small reject scene-del', 'BORRAR'));
+    } else if (!abierto) {
+      menu.replaceChildren();
     }
-    // Guarda anti-pisado a ciegas: sin la lista cargada no se puede saber si el
-    // nombre ya existe, y guardar igual pisaría un perfil sin mostrar el banner.
-    if (state.displaysProfiles === null) {
-      setStatus('DISPLAYS · esperá, cargando perfiles…', { priority: 'warn', ttl: 3000 });
-      return;
+    const inline = li.querySelector('.scene-inline');
+    const modo = scenesUi.rename === s.name ? 'rename' : (scenesUi.confirmDel === s.name ? 'del' : '');
+    inline.hidden = !modo;
+    inline.classList.toggle('is-danger', modo === 'del');
+    if (inline.dataset.modo !== modo) {
+      inline.dataset.modo = modo;
+      inline.replaceChildren();
+      if (modo === 'del') {
+        inline.append(
+          mkEl('span', 'scene-inline-text', `¿Borrar "${s.name}"? No se puede deshacer.`),
+          mkBtn('modal-btn small reject scene-del-yes', 'SÍ, BORRAR'),
+          mkBtn('modal-btn small scene-del-no', 'NO'));
+      } else if (modo === 'rename') {
+        const inp = mkEl('input', 'scene-rename-input');
+        inp.type = 'text';
+        inp.maxLength = 60;
+        inp.value = s.name;
+        inp.autocomplete = 'off';
+        inp.spellcheck = false;
+        inline.append(inp,
+          mkBtn('modal-btn small accept scene-rename-ok', 'RENOMBRAR'),
+          mkBtn('modal-btn small scene-rename-no', 'CANCELAR'));
+        setTimeout(() => { inp.focus(); inp.select(); }, 0);
+      }
     }
-    // Pisar un perfil que ya existe = transformar tus datos: se pide OK antes. El
-    // match es sin distinguir mayúsculas, PERO se pisa el nombre CANÓNICO ya
-    // guardado (no la capitalización tipeada): el backend hace upsert por nombre
-    // exacto, así que "trabajo" sobre "Trabajo" tiene que reemplazar "Trabajo",
-    // no crear un duplicado.
-    const existing = (state.displaysProfiles || []).find(
-      (p) => p.name.toLowerCase() === typed.toLowerCase()
-    );
-    if (existing) {
-      askProfileConfirm(
-        { type: 'overwrite', name: existing.name },
-        `Ya existe "${existing.name}". Guardar reemplaza su layout guardado por el actual.`
-      );
-      return;
-    }
-    doSaveProfile(typed);
   }
 
-  async function doSaveProfile(name) {
-    if (state.displaysBusy) return;
-    state.displaysBusy = true;
-    renderProfiles();
+  function renderSceneChooser() {
+    if (!scenesChooser) return;
+    const modo = scenesUi.chooser;
+    scenesChooser.hidden = !modo;
+    scenesChooser.replaceChildren();
+    if (!modo) return;
+    scenesChooser.appendChild(mkEl('b', 'scene-inline-text', '¿De dónde arranco?'));
+    if (modo === 'open') {
+      scenesChooser.append(
+        mkBtn('modal-btn small scene-from-current', 'DE LO QUE ESTÁ PUESTO AHORA'),
+        mkBtn('modal-btn small scene-from-copy', 'COPIA DE OTRA ESCENA…'),
+        mkBtn('modal-btn small scene-from-blank', 'EN BLANCO'));
+    } else {
+      scenesChooser.appendChild(mkEl('span', 'scene-inline-text mono', 'Elegí cuál copiar:'));
+      (scenesData || []).forEach((s) => {
+        const b = mkBtn('modal-btn small scene-copy-pick', s.name);
+        b.dataset.name = s.name;
+        scenesChooser.appendChild(b);
+      });
+    }
+    scenesChooser.appendChild(mkBtn('modal-btn small scene-chooser-close', 'CANCELAR'));
+  }
+
+  // Render por diff, como renderDisplays: se reusa el <li> por data-name.
+  function renderScenes() {
+    if (!scenesList || scenesData === null) return;
+    const items = scenesData;
+    const existing = new Map();
+    Array.from(scenesList.querySelectorAll('li.scene-card')).forEach((li) => {
+      if (li.dataset.name) existing.set(li.dataset.name, li);
+    });
+    const seen = new Set();
+    items.forEach((s, idx) => {
+      seen.add(s.name);
+      try {
+        let li = existing.get(s.name);
+        if (li) updateSceneCard(li, s, idx, items.length);
+        else { li = buildSceneCard(s); updateSceneCard(li, s, idx, items.length); }
+        if (scenesList.children[idx] !== li) scenesList.insertBefore(li, scenesList.children[idx] || null);
+      } catch (err) {
+        console.error('[displays] escena malformada', err);
+      }
+    });
+    existing.forEach((li, name) => { if (!seen.has(name)) li.remove(); });
+    if (scenesEmpty) scenesEmpty.hidden = items.length > 0;
+    if (scenesNewBtn) scenesNewBtn.disabled = !!state.displaysBusy;
+    const reason = sceneBlockReason();
+    if (scenesBlockReason) {
+      scenesBlockReason.hidden = !reason;
+      scenesBlockReason.textContent = reason || '';
+    }
+    renderSceneChooser();
+  }
+
+  async function loadScenes() {
+    if (displaysError) displaysError.hidden = true;
     try {
-      const profiles = await invoke('displays_save_profile', { name });
-      state.displaysProfiles = Array.isArray(profiles) ? profiles : [];
-      if (displaysProfileName) displaysProfileName.value = '';
-      setStatus(`DISPLAYS · perfil "${name}" guardado`, { force: true });
+      const [lista, ajustes] = await Promise.all([
+        invoke('displays_list_scenes'),
+        invoke('displays_get_settings').catch(() => null),
+      ]);
+      scenesData = Array.isArray(lista) ? lista : [];
+      if (ajustes) scenesShortcutsOn = !!ajustes.globalShortcutsEnabled;
     } catch (err) {
+      scenesData = [];
       showDisplaysError(err);
-    } finally {
-      state.displaysBusy = false;
-      renderProfiles();
     }
+    renderScenes();
   }
 
-  // Cargar = aplicar el layout del perfil, con la MISMA red que el detach: el
-  // snapshot vuelve con la cuenta regresiva, y si no confirmás vuelve solo.
-  async function loadProfileFlow(name) {
-    if (state.displaysBusy || state.displaysPending) return;
-    hideProfileConfirm();
+  // Un comando que escribe escenas devuelve ScenesResult: la lista queda al día.
+  function takeScenesResult(res) {
+    if (res && Array.isArray(res.scenes)) scenesData = res.scenes;
+    if (res && Array.isArray(res.warnings)) {
+      res.warnings.forEach((w) => setStatus(`DISPLAYS · ${w}`, { priority: 'warn', ttl: 9000 }));
+    }
+    return res;
+  }
+
+  // Corre un comando que toca escenas con el bloqueo de siempre (displaysBusy).
+  async function sceneFlow(command, args, okMsg) {
+    if (state.displaysBusy) return null;
     state.displaysBusy = true;
     if (displaysError) displaysError.hidden = true;
-    renderProfiles();
+    renderScenes();
+    try {
+      const res = takeScenesResult(await invoke(command, args));
+      if (okMsg) setStatus(`DISPLAYS · ${typeof okMsg === 'function' ? okMsg(res) : okMsg}`, { force: true });
+      return res || {};
+    } catch (err) {
+      showDisplaysError(err);
+      return null;
+    } finally {
+      state.displaysBusy = false;
+      renderScenes();
+    }
+  }
+
+  // APLICAR = cargar el layout de la escena con la MISMA red que el detach: el
+  // snapshot vuelve con la cuenta regresiva, y si no confirmás vuelve solo.
+  async function applySceneFlow(name) {
+    if (state.displaysBusy || state.displaysPending) return;
+    state.displaysBusy = true;
+    if (displaysError) displaysError.hidden = true;
+    renderScenes();
     blip(660, 0.06);
-    setStatus(`DISPLAYS · cargando "${name}"…`, { force: true });
+    setStatus(`DISPLAYS · aplicando "${name}"…`, { force: true });
     try {
       applyDisplaysSnapshot(await invoke('displays_load_profile', { name }));
     } catch (err) {
@@ -369,147 +329,125 @@
     }
   }
 
-  function deleteProfileFlow(name) {
-    if (state.displaysBusy) return;
-    askProfileConfirm({ type: 'delete', name }, `¿Borrar el perfil "${name}"? No se puede deshacer.`);
-  }
-
-  async function doDeleteProfile(name) {
+  async function deleteSceneFlow(name) {
+    scenesUi.confirmDel = null;
     if (state.displaysBusy) return;
     state.displaysBusy = true;
-    renderProfiles();
+    renderScenes();
     try {
-      const profiles = await invoke('displays_delete_profile', { name });
-      state.displaysProfiles = Array.isArray(profiles) ? profiles : [];
-      setStatus(`DISPLAYS · perfil "${name}" borrado`, { force: true });
+      await invoke('displays_delete_profile', { name });
+      setStatus(`DISPLAYS · escena "${name}" borrada`, { force: true });
     } catch (err) {
       showDisplaysError(err);
     } finally {
       state.displaysBusy = false;
-      renderProfiles();
+    }
+    await loadScenes();
+  }
+
+  function reorderScene(name, delta) {
+    const names = (scenesData || []).map((s) => s.name);
+    const i = names.indexOf(name);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= names.length) return;
+    names.splice(j, 0, names.splice(i, 1)[0]);
+    sceneFlow('displays_reorder_scenes', { names }, 'orden guardado');
+  }
+
+  function onScenesClick(e) {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    const li = t.closest('li.scene-card');
+    const name = li && li.dataset ? li.dataset.name : null;
+    if (!name) return;
+    const hit = (sel) => { const b = t.closest(sel); return b && !b.disabled ? b : null; };
+    if (hit('.scene-apply')) applySceneFlow(name);
+    else if (hit('.scene-edit')) openSceneEditor({ from: 'scene', name });
+    else if (hit('.scene-more')) {
+      scenesUi.menu = scenesUi.menu === name ? null : name;
+      scenesUi.rename = null; scenesUi.confirmDel = null;
+      renderScenes();
+    } else if (hit('.scene-up')) reorderScene(name, -1);
+    else if (hit('.scene-down')) reorderScene(name, 1);
+    else if (hit('.scene-dup')) {
+      scenesUi.menu = null;
+      sceneFlow('displays_duplicate_scene', { name }, (r) => `escena duplicada: "${r.name}"`);
+    } else if (hit('.scene-rename')) {
+      scenesUi.menu = null; scenesUi.rename = name; scenesUi.confirmDel = null;
+      renderScenes();
+    } else if (hit('.scene-del')) {
+      scenesUi.menu = null; scenesUi.confirmDel = name; scenesUi.rename = null;
+      renderScenes();
+    } else if (hit('.scene-del-yes')) deleteSceneFlow(name);
+    else if (hit('.scene-del-no')) { scenesUi.confirmDel = null; renderScenes(); }
+    else if (hit('.scene-rename-ok')) submitSceneRename(li, name);
+    else if (hit('.scene-rename-no')) { scenesUi.rename = null; renderScenes(); }
+  }
+
+  async function submitSceneRename(li, name) {
+    const inp = li.querySelector('.scene-rename-input');
+    const newName = inp ? inp.value : '';
+    const res = await sceneFlow('displays_rename_scene', { name, newName }, (r) => `escena renombrada a "${r.name}"`);
+    if (res) scenesUi.rename = null;
+    renderScenes();
+  }
+
+  function onScenesDrag(e) {
+    const li = e.target.closest ? e.target.closest('li.scene-card') : null;
+    if (e.type === 'dragstart' && li) {
+      sceneDragName = li.dataset.name;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', sceneDragName);
+    } else if (e.type === 'dragover' && li && sceneDragName) {
+      e.preventDefault();
+      scenesList.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over'));
+      li.classList.add('drag-over');
+    } else if (e.type === 'drop' && li && sceneDragName) {
+      e.preventDefault();
+      const names = (scenesData || []).map((s) => s.name);
+      const from = names.indexOf(sceneDragName);
+      const to = names.indexOf(li.dataset.name);
+      sceneDragName = null;
+      scenesList.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over'));
+      if (from >= 0 && to >= 0 && from !== to && !state.displaysPending) {
+        names.splice(to, 0, names.splice(from, 1)[0]);
+        sceneFlow('displays_reorder_scenes', { names }, 'orden guardado');
+      }
+    } else if (e.type === 'dragend') {
+      sceneDragName = null;
+      if (scenesList) scenesList.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over'));
+      scenesList.querySelectorAll('.scene-card').forEach((x) => { x.draggable = false; });
     }
   }
 
-  // --- Displays v2, Fase 1: actualizar perfil + atajos ----------------------
-
-  // "↻ actualizar": pisar el perfil con el layout actual. Es tu dato → se pide
-  // OK por el mismo banner que el guardado, y se reusa doSaveProfile (upsert por
-  // nombre exacto).
-  function updateProfileFlow(name) {
-    if (state.displaysBusy || state.displaysPending) return;
-    askProfileConfirm(
-      { type: 'overwrite', name },
-      `Pisar "${name}" con el layout actual (monitores, posiciones y primario de ahora).`
-    );
+  function onChooserClick(e) {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    if (t.closest('.scene-from-current')) { scenesUi.chooser = null; renderSceneChooser(); openSceneEditor({ from: 'current' }); }
+    else if (t.closest('.scene-from-blank')) { scenesUi.chooser = null; renderSceneChooser(); openSceneEditor({ from: 'blank' }); }
+    else if (t.closest('.scene-from-copy')) { scenesUi.chooser = 'copy'; renderSceneChooser(); }
+    else if (t.closest('.scene-copy-pick')) {
+      const name = t.closest('.scene-copy-pick').dataset.name;
+      scenesUi.chooser = null; renderSceneChooser();
+      openSceneEditor({ from: 'copy', name });
+    } else if (t.closest('.scene-chooser-close')) { scenesUi.chooser = null; renderSceneChooser(); }
   }
 
-  // Captura de un atajo: al clickear el botón se escucha el próximo keydown y se
-  // arma el accelerator ("Ctrl+Shift+1"). Requiere al menos un modificador
-  // (Ctrl/Shift/Alt). Esc cancela; Supr/Backspace borra el atajo del perfil.
-  function startShortcutCapture(name) {
-    if (state.displaysBusy) return;
-    cancelShortcutCapture(); // por si había otra fila capturando
-    shortcutCaptureName = name;
-    if (displaysProfilesList) {
-      // Buscar la fila por dataset.name (no por selector con el valor inyectado).
-      const li = Array.from(displaysProfilesList.querySelectorAll('li.displays-profile-item'))
-        .find((x) => x.dataset && x.dataset.name === name);
-      const btn = li ? li.querySelector('.displays-profile-shortcut') : null;
-      if (btn) { btn.textContent = '⌨ apretá teclas…'; btn.classList.add('capturing'); }
-    }
-    setStatus('DISPLAYS · apretá una combinación con Ctrl/Shift/Alt · Supr borra · Esc cancela', { force: true, ttl: 8000 });
-    shortcutKeyHandler = onShortcutCaptureKey;
-    document.addEventListener('keydown', shortcutKeyHandler, true);
-  }
-
-  function cancelShortcutCapture() {
-    if (shortcutKeyHandler) {
-      document.removeEventListener('keydown', shortcutKeyHandler, true);
-      shortcutKeyHandler = null;
-    }
-    const wasCapturing = shortcutCaptureName !== null;
-    shortcutCaptureName = null;
-    // Restaurar el texto del botón desde el estado (limpia la clase 'capturing').
-    if (wasCapturing) renderProfiles();
-  }
-
-  function onShortcutCaptureKey(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    const key = e.key;
-    if (key === 'Escape') {
-      cancelShortcutCapture();
-      setStatus('DISPLAYS · captura cancelada', { ttl: 2500 });
-      return;
-    }
-    if (key === 'Delete' || key === 'Backspace') {
-      const name = shortcutCaptureName;
-      cancelShortcutCapture();
-      if (name) clearShortcut(name);
-      return;
-    }
-    // Un modificador suelto no cierra la captura: se espera una tecla real.
-    if (key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') return;
-    const mods = [];
-    if (e.ctrlKey) mods.push('Ctrl');
-    if (e.shiftKey) mods.push('Shift');
-    if (e.altKey) mods.push('Alt');
-    if (mods.length === 0) {
-      setStatus('DISPLAYS · usá al menos Ctrl, Shift o Alt', { priority: 'warn', ttl: 3000 });
-      return; // se sigue capturando
-    }
-    const token = accelKeyToken(e);
-    if (!token) {
-      setStatus('DISPLAYS · esa tecla no sirve (usá letras, números o F1–F24)', { priority: 'warn', ttl: 3500 });
-      return; // se sigue capturando
-    }
-    const accelerator = mods.concat(token).join('+');
-    const name = shortcutCaptureName;
-    cancelShortcutCapture();
-    if (name) assignShortcut(name, accelerator);
-  }
-
-  // Traduce el keydown a un token que el parser de Tauri acepta ("A","1","F1"…).
-  // Se usa e.code (físico) para no depender del layout de teclado.
-  function accelKeyToken(e) {
-    const code = e.code || '';
-    if (/^Key[A-Z]$/.test(code)) return code.slice(3);       // KeyA -> A
-    if (/^Digit[0-9]$/.test(code)) return code.slice(5);     // Digit1 -> 1
-    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;  // F1..F24
-    return null;
-  }
-
-  async function assignShortcut(name, accelerator) {
-    if (state.displaysBusy) return;
-    state.displaysBusy = true;
-    renderProfiles();
+  // Los eventos se escuchan recién al entrar a Displays (así Clipboard no registra nada de esto).
+  async function listenSceneEvents() {
+    if (scenesListenerReady) return;
+    scenesListenerReady = true;
     try {
-      const profiles = await invoke('displays_set_profile_shortcut', { name, accelerator });
-      state.displaysProfiles = Array.isArray(profiles) ? profiles : [];
-      setStatus(`DISPLAYS · atajo ${accelerator} → "${name}"`, { force: true });
+      await listen('displays-scenes-changed', () => { if (state.section === 'displays') loadScenes(); });
+      await listen('displays-confirmation', (event) => {
+        const p = event.payload || {};
+        if (p.kind === 'applied') displaysPendingIsTest = !!p.isTest;
+        else if (p.kind === 'confirmed' || p.kind === 'reverted') displaysPendingIsTest = false;
+        displaysLastShownSec = -1; // que el reloj se reescriba con el texto de PRUEBA
+        refreshDisplaysUi();
+      });
     } catch (err) {
-      // Conflicto (la combinación la usa otro programa) o inválida: el backend
-      // ya deshizo el guardado; acá solo se avisa.
-      showDisplaysError(err);
-    } finally {
-      state.displaysBusy = false;
-      renderProfiles();
-    }
-  }
-
-  async function clearShortcut(name) {
-    if (state.displaysBusy) return;
-    state.displaysBusy = true;
-    renderProfiles();
-    try {
-      const profiles = await invoke('displays_clear_profile_shortcut', { name });
-      state.displaysProfiles = Array.isArray(profiles) ? profiles : [];
-      setStatus(`DISPLAYS · atajo de "${name}" borrado`, { force: true });
-    } catch (err) {
-      showDisplaysError(err);
-    } finally {
-      state.displaysBusy = false;
-      renderProfiles();
+      console.warn('[displays] no se pudo escuchar los eventos de escenas', err);
     }
   }
 
@@ -839,14 +777,15 @@
       state.displays = [];
       renderDisplays();
       state.displaysProfiles = null;
-      if (displaysProfilesList) displaysProfilesList.replaceChildren();
-      if (displaysProfileName) displaysProfileName.value = '';
+      scenesData = null;
+      scenesUi.menu = scenesUi.rename = scenesUi.confirmDel = scenesUi.chooser = null;
+      if (scenesList) scenesList.replaceChildren();
+      listenSceneEvents();
       displaysSettingsLoaded = false; // AJUSTES se re-carga al entrar a su pestaña
-      hideProfileConfirm();
       state.displaysDraft = [];
       canvasDirty = false;
       canvasDrag = null;
-      switchDisplaysTab(state.displaysTab || 'list');
+      switchDisplaysTab('scenes'); // ESCENAS es la primera y la de siempre al arrancar
       if (displaysCount) displaysCount.textContent = 'LEYENDO…';
       // renderDisplays() con la lista vacia prende el "Sin monitores"; durante la
       // lectura todavia no sabemos eso.
@@ -912,58 +851,26 @@
       switchDisplaysTab(btn.dataset.tab);
     });
   }
-  if (displaysSaveProfileBtn) {
-    displaysSaveProfileBtn.addEventListener('click', () => { blip(880, 0.05); saveProfileFlow(); });
+  // Pestaña ESCENAS: delegación en la lista (tarjetas), en ＋ NUEVA ESCENA y en el selector de origen.
+  if (scenesList) {
+    scenesList.addEventListener('click', onScenesClick);
+    scenesList.addEventListener('keydown', (e) => {
+      const inp = e.target && e.target.closest ? e.target.closest('.scene-rename-input') : null;
+      if (!inp) return;
+      const li = inp.closest('li.scene-card');
+      if (e.key === 'Enter') { e.preventDefault(); submitSceneRename(li, li.dataset.name); }
+      else if (e.key === 'Escape') { e.stopPropagation(); scenesUi.rename = null; renderScenes(); }
+    });
+    ['dragstart', 'dragover', 'drop', 'dragend'].forEach((t) => scenesList.addEventListener(t, onScenesDrag));
   }
-  if (displaysProfileName) {
-    displaysProfileName.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); saveProfileFlow(); }
+  if (scenesNewBtn) {
+    scenesNewBtn.addEventListener('click', () => {
+      blip(880, 0.05);
+      scenesUi.chooser = scenesUi.chooser ? null : 'open';
+      renderSceneChooser();
     });
   }
-  if (displaysProfileConfirmYes) {
-    displaysProfileConfirmYes.addEventListener('click', () => { blip(1100, 0.05); runPendingProfileAction(); });
-  }
-  if (displaysProfileConfirmNo) {
-    displaysProfileConfirmNo.addEventListener('click', () => { blip(440, 0.06); hideProfileConfirm(); });
-  }
-  // Delegacion en la lista de perfiles: CARGAR / BORRAR.
-  if (displaysProfilesList) {
-    displaysProfilesList.addEventListener('click', (e) => {
-      const el = e.target;
-      if (!el || !el.closest) return;
-      const li = el.closest('.displays-profile-item');
-      const name = li && li.dataset ? li.dataset.name : null;
-      if (!name) return;
-      // Fase 4: el editor de escena tiene sus propios botones (toggle, chips,
-      // form). Si el clic fue en uno de ellos, lo consume y no sigue.
-      if (handleSceneClick(el, li, name)) return;
-      const loadBtn = el.closest('.displays-profile-load');
-      const delBtn = el.closest('.displays-profile-delete');
-      const updateBtn = el.closest('.displays-profile-update');
-      const scBtn = el.closest('.displays-profile-shortcut');
-      if (loadBtn && !loadBtn.disabled) loadProfileFlow(name);
-      else if (delBtn && !delBtn.disabled) deleteProfileFlow(name);
-      else if (updateBtn && !updateBtn.disabled) updateProfileFlow(name);
-      else if (scBtn && !scBtn.disabled) startShortcutCapture(name);
-    });
-    // Los <select> emiten 'change', no 'click': listener aparte para el audio y
-    // para el preset de escena (Fase 4).
-    displaysProfilesList.addEventListener('change', (e) => {
-      const el = e.target;
-      if (!el || !el.classList) return;
-      const li = el.closest && el.closest('.displays-profile-item');
-      const name = li && li.dataset ? li.dataset.name : null;
-      if (!name) return;
-      if (el.classList.contains('displays-profile-audio-select')) {
-        setProfileAudioFlow(name, el.value);
-      } else if (el.classList.contains('displays-scene-preset')) {
-        const col = el.closest('.displays-scene-col');
-        const preset = el.value;
-        el.value = ''; // resetear el select al placeholder
-        if (col && preset) handleScenePreset(li, col, preset);
-      }
-    });
-  }
+  if (scenesChooser) scenesChooser.addEventListener('click', onChooserClick);
   if (displaysSettingsSaveBtn) {
     displaysSettingsSaveBtn.addEventListener('click', () => { blip(880, 0.05); saveSettings(); });
   }
